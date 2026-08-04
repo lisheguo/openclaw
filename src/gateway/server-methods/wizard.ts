@@ -22,6 +22,7 @@ import {
 } from "../../wizard/session.js";
 import { formatForLog } from "../ws-log.js";
 import { createAdmittedWizardSession, SETUP_ADMISSION_BUSY_MESSAGE } from "./setup-admission.js";
+import { assertSystemAgentGatewayExecutionActive } from "./system-agent-execution-lifecycle.js";
 import type { GatewayRequestContext, GatewayRequestHandlers, RespondFn } from "./types.js";
 import { assertValidParams } from "./validation.js";
 
@@ -110,38 +111,46 @@ export const wizardHandlers: GatewayRequestHandlers = {
     if (!assertValidParams(params, validateWizardStartParams, "wizard.start", respond)) {
       return;
     }
+    // Fail before waiting for setup admission when this Gateway is already retired.
+    assertSystemAgentGatewayExecutionActive(context.systemAgentSessions);
     const sessionId = randomUUID();
     const flow = params.flow ?? "setup";
-    const createSession = () =>
-      flow === "channels"
-        ? new WizardSession((prompter, _signal, wizardSession) =>
-            runHostedWizard((runtime) =>
-              context.channelWizardRunner(
-                {
-                  channel: readStringValue(params.channel),
-                  onConfigured: (accounts) => wizardSession.setConfiguredAccounts(accounts),
-                  // Durable effects (plugin installs, config commit) must finish
-                  // even if the client cancels mid-write.
-                  beforePersistentEffect: async () => wizardSession.lockCancellation(),
-                },
-                runtime,
-                prompter,
+    const createSession = () => {
+      assertSystemAgentGatewayExecutionActive(context.systemAgentSessions);
+      const session =
+        flow === "channels"
+          ? new WizardSession((prompter, _signal, wizardSession) =>
+              runHostedWizard((runtime) =>
+                context.channelWizardRunner(
+                  {
+                    channel: readStringValue(params.channel),
+                    onConfigured: (accounts) => wizardSession.setConfiguredAccounts(accounts),
+                    // Durable effects (plugin installs, config commit) must finish
+                    // even if the client cancels mid-write.
+                    beforePersistentEffect: async () => wizardSession.lockCancellation(),
+                  },
+                  runtime,
+                  prompter,
+                ),
               ),
-            ),
-          )
-        : new WizardSession((prompter) =>
-            runHostedWizard((runtime) =>
-              context.wizardRunner(
-                {
-                  mode: params.mode,
-                  workspace: readStringValue(params.workspace),
-                  installDaemon: params.installDaemon,
-                },
-                runtime,
-                prompter,
+            )
+          : new WizardSession((prompter) =>
+              runHostedWizard((runtime) =>
+                context.wizardRunner(
+                  {
+                    mode: params.mode,
+                    workspace: readStringValue(params.workspace),
+                    installDaemon: params.installDaemon,
+                  },
+                  runtime,
+                  prompter,
+                ),
               ),
-            ),
-          );
+            );
+      retainGatewayWorkUntilSettled(session);
+      context.wizardSessions.set(sessionId, session);
+      return session;
+    };
     const session = await createAdmittedWizardSession(createSession, flow === "setup");
     if (!session) {
       respond(
@@ -151,8 +160,6 @@ export const wizardHandlers: GatewayRequestHandlers = {
       );
       return;
     }
-    retainGatewayWorkUntilSettled(session);
-    context.wizardSessions.set(sessionId, session);
     const result = await session.next();
     if (result.done) {
       // Let the runner release setup admission before the terminal response,
@@ -166,6 +173,7 @@ export const wizardHandlers: GatewayRequestHandlers = {
     if (!assertValidParams(params, validateWizardNextParams, "wizard.next", respond)) {
       return;
     }
+    assertSystemAgentGatewayExecutionActive(context.systemAgentSessions);
     const sessionId = params.sessionId;
     const session = findWizardSessionOrRespond({ context, respond, sessionId });
     if (!session) {
@@ -207,6 +215,7 @@ export const wizardHandlers: GatewayRequestHandlers = {
     if (!assertValidParams(params, validateWizardCancelParams, "wizard.cancel", respond)) {
       return;
     }
+    assertSystemAgentGatewayExecutionActive(context.systemAgentSessions);
     const sessionId = params.sessionId;
     const session = findWizardSessionOrRespond({ context, respond, sessionId });
     if (!session) {
@@ -225,6 +234,7 @@ export const wizardHandlers: GatewayRequestHandlers = {
     if (!assertValidParams(params, validateWizardStatusParams, "wizard.status", respond)) {
       return;
     }
+    assertSystemAgentGatewayExecutionActive(context.systemAgentSessions);
     const sessionId = params.sessionId;
     const session = findWizardSessionOrRespond({ context, respond, sessionId });
     if (!session) {
