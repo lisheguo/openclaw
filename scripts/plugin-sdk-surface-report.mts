@@ -255,7 +255,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // -2: remove unused WhatsApp-specific ack policy exports from channel-feedback.
       // -7: retire unused and duplicate inbound-dispatch compatibility exports.
       // +7: restore still-existing deprecated inbound-dispatch compatibility re-exports.
-      4847,
+      // +1: canonical PNG QR data URL schema for plugin-owned QR login actions.
+      4848,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
