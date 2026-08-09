@@ -145,6 +145,7 @@ type GatewaySystemAgentChatReply = {
   action: "none" | "exit" | "open-tui" | "open-setup";
   sensitive?: boolean;
   wizardInputPending?: boolean;
+  wizardSettling?: boolean;
   question?: SystemAgentChatQuestion;
   step?: WizardStep;
 };
