@@ -1823,7 +1823,7 @@ describe("handleSendChat", () => {
   });
 
   it("keeps a resolved model reconciliation inside the canonical settings queue", async () => {
-    const reconcile = createDeferred<void>();
+    const reconcile = createDeferred();
     let patchCount = 0;
     const host = makeChatHost({
       requestHandlers: {
