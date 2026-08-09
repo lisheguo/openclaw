@@ -3756,6 +3756,7 @@ describe("handleSendChat", () => {
         expect.objectContaining({
           message: "steer without waiting for history",
           queueMode: "steer",
+          replyToId: "steer-behind-outbox-source",
         }),
       ),
     );
@@ -3763,6 +3764,9 @@ describe("handleSendChat", () => {
 
     expect(host.chatReplyTarget).toBeNull();
     expect(host.chatRunId).toBe("active-run");
+    expect(host.chatQueue.find((item) => item.kind === "steered")?.replyToId).toBe(
+      "steer-behind-outbox-source",
+    );
     olderHistory.resolve({
       messages: [{ role: "user", __openclaw: { idempotencyKey: "older-reconciliation-run:user" } }],
       sessionInfo: row("agent:main", { hasActiveRun: true, status: "running" }),
