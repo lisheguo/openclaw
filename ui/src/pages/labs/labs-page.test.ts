@@ -208,7 +208,12 @@ describe("LabsPage", () => {
     },
   ])("writes the on value at the registered config path when enabling $label", async (testCase) => {
     const { page, runtimeConfig } = await mountPage(testCase.sourceConfig);
-    const toggle = labToggle(page, testCase.index, testCase.label);
+    const toggle = labRow(page, testCase.label).querySelector<HTMLElement & { checked: boolean }>(
+      "wa-switch",
+    );
+    if (!toggle) {
+      throw new Error(`${testCase.label} toggle not rendered`);
+    }
 
     toggle.checked = true;
     toggle.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
