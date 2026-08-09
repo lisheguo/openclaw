@@ -284,6 +284,7 @@ enum class GatewayMethod(
   TaskSuggestionsDismiss("taskSuggestions.dismiss"),
   EnvironmentsList("environments.list"),
   EnvironmentsStatus("environments.status"),
+  ProjectsList("projects.list"),
   WorktreesList("worktrees.list"),
   WorktreesBranches("worktrees.branches"),
   FsListDir("fs.listDir"),
