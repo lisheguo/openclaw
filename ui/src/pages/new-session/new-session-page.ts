@@ -1889,7 +1889,7 @@ class NewSessionPage extends OpenClawLightDomElement {
           folder: this.folder.trim() || this.workspacePath(),
           worktree: this.worktree,
         });
-        if (this.worktree) {
+        if (this.worktree && this.repository.kind !== "git") {
           this.maybeLoadBranches();
         }
       },
