@@ -517,6 +517,9 @@ enum class GatewayMethod(
   UpdateHold("update.hold"),
   SessionsCatalogStartTerminal("sessions.catalog.startTerminal"),
   WorkerDesktopObserve("worker.desktop.observe"),
+  SecretsStoreList("secrets.store.list"),
+  SecretsStoreSet("secrets.store.set"),
+  SecretsStoreDelete("secrets.store.delete"),
 }
 
 enum class GatewayEvent(

@@ -483,6 +483,10 @@ const CORE_GATEWAY_METHOD_SPECS = [
   // Additive catalog terminal start appends so older advertised indices stay stable.
   ["sessions.catalog.startTerminal", "session-catalog", "operator.admin", "2026.8"],
   ["worker.desktop.observe", "environments", "operator.admin", "2026.8", { startup: true }],
+  // Store CRUD shares the auxiliary secrets runtime owner and appends for stable indices.
+  ["secrets.store.list", null, "operator.admin", "2026.8"],
+  ["secrets.store.set", null, "operator.admin", "2026.8", { controlPlaneWrite: true }],
+  ["secrets.store.delete", null, "operator.admin", "2026.8", { controlPlaneWrite: true }],
 ] as const satisfies readonly CoreGatewayMethodSpecRow[];
 
 export type CoreGatewayHandlerFamily = Exclude<(typeof CORE_GATEWAY_METHOD_SPECS)[number][1], null>;
