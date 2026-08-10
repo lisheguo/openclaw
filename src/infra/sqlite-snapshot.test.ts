@@ -602,22 +602,27 @@ describe("createVerifiedSqliteSnapshot", () => {
   );
 
   it("removes its target when inspection fails after atomic publication", async () => {
-    const originalLink = fs.link.bind(fs);
+    const originalOpen = fs.open.bind(fs);
     const originalLstat = fs.lstat.bind(fs);
-    let linked = false;
+    let publishedTargetOpened = false;
     let failedInspection = false;
-    vi.spyOn(fs, "link").mockImplementation(async (source, target) => {
-      await originalLink(source, target);
-      if (path.resolve(String(target)) === targetPath) {
-        linked = true;
+    vi.spyOn(fs, "open").mockImplementation(async (filePath, flags, mode) => {
+      const handle = await originalOpen(filePath, flags, mode);
+      if (path.resolve(String(filePath)) === targetPath && flags === "r") {
+        publishedTargetOpened = true;
       }
+      return handle;
     });
     // Forward only the path, not lstat options: passing bigint options through
     // changes which publication-identity call the injected EIO lands on, and on
     // Windows that surfaces "publication source identity did not match" instead
     // of the inspection failure under test (broke checks-windows-node-test).
     vi.spyOn(fs, "lstat").mockImplementation(async (filePath) => {
-      if (linked && !failedInspection && path.resolve(String(filePath)) === targetPath) {
+      if (
+        publishedTargetOpened &&
+        !failedInspection &&
+        path.resolve(String(filePath)) === targetPath
+      ) {
         failedInspection = true;
         throw Object.assign(new Error("target inspection failed"), { code: "EIO" });
       }
