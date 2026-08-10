@@ -220,8 +220,6 @@ export function createPageState(
       dispatchCommandClientPresentation(context, action),
     basePath: context.basePath,
     chatNewMessagesBelow: false,
-    chatViewMenuOpen: false,
-    chatViewMenuTrigger: null,
     chatLocalInputHistoryBySession: {},
     chatInputHistorySessionKey: null,
     chatInputHistoryItems: null,
@@ -278,26 +276,6 @@ export function createPageState(
       chatSendShortcut: next.chatSendShortcut,
     });
     renderLifecycle.invalidate();
-  };
-  state.setChatViewMenuOpen = (open, options) => {
-    if (open) {
-      state.chatViewMenuTrigger = options?.trigger ?? state.chatViewMenuTrigger;
-      state.chatViewMenuOpen = true;
-      renderLifecycle.invalidate();
-      return;
-    }
-    const focusTarget = options?.restoreFocus ? state.chatViewMenuTrigger : null;
-    state.chatViewMenuOpen = false;
-    state.chatViewMenuTrigger = null;
-    renderLifecycle.invalidate();
-    if (!(focusTarget instanceof HTMLElement) || !focusTarget.isConnected) {
-      return;
-    }
-    requestAnimationFrame(() => {
-      if (focusTarget.isConnected) {
-        focusTarget.focus();
-      }
-    });
   };
   attachChatRealtimeActions(state);
   state.loadAssistantIdentity = () => loadPageAssistantIdentity(state);
