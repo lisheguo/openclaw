@@ -621,6 +621,7 @@ describe("createVerifiedSqliteSnapshot", () => {
       return await originalLstat(...args);
     });
 
+    expect(typeof (await fs.lstat(sourcePath, { bigint: true })).ino).toBe("bigint");
     await expectSnapshotFailureWithoutTarget(
       { sourcePath, targetPath },
       /target inspection failed/u,
