@@ -779,19 +779,38 @@ describe("cron service timer regressions", () => {
       expect(job.state.lastStatus).toBe("error");
       expect(job.state.lastError).toContain("stalled before execution start");
       expect(job.state.lastError).toContain("runtime-plugins");
+      const diagnosticSummary =
+        "cron: isolated agent run stalled before execution start (last phase: runtime-plugins)";
+      expect(job.state.lastDiagnosticSummary).toBe(diagnosticSummary);
+      expect(job.state.lastDiagnostics).toMatchObject({
+        summary: diagnosticSummary,
+        entries: [
+          {
+            source: "cron-setup",
+            severity: "error",
+            message: diagnosticSummary,
+          },
+        ],
+      });
       expect(cleanupTimedOutAgentRun).toHaveBeenCalledTimes(1);
       expect(sendCronFailureAlert).toHaveBeenCalledTimes(1);
-      expect(sendCronFailureAlert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          channel: "telegram",
-          to: "12345",
-          payload: expect.objectContaining({
-            text:
-              'Automation "before agent reply unhandled regression" failed 1 times\n' +
-              "Check automation history for details.",
-          }),
+      expect(sendCronFailureAlert).toHaveBeenCalledExactlyOnceWith({
+        job: expect.objectContaining({
+          id: "isolated-before-agent-reply-unhandled-82811",
+          state: expect.objectContaining({ lastDiagnosticSummary: diagnosticSummary }),
         }),
-      );
+        payload: {
+          text:
+            'Automation "before agent reply unhandled regression" failed 1 times\n' +
+            "Check automation history for details.",
+        },
+        runAtMs: expect.any(Number),
+        channel: "telegram",
+        to: "12345",
+        mode: "announce",
+        accountId: undefined,
+        threadId: undefined,
+      });
     } finally {
       vi.useRealTimers();
     }
