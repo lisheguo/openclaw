@@ -517,6 +517,8 @@ enum class GatewayMethod(
   UpdateHold("update.hold"),
   SessionsCatalogStartTerminal("sessions.catalog.startTerminal"),
   WorkerDesktopObserve("worker.desktop.observe"),
+  DeviceScopesRequestUpgrade("device.scopes.requestUpgrade"),
+  DeviceScopesWaitUpgrade("device.scopes.waitUpgrade"),
 }
 
 enum class GatewayEvent(
