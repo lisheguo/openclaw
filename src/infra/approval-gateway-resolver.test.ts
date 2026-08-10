@@ -266,7 +266,7 @@ describe("resolveApprovalOverGateway", () => {
       return { applied: true, approval: recordedApproval };
     });
     const runtime = {
-      request: scopedRequest,
+      request: scopedRequest as GatewayNativeApprovalRuntime["request"],
       requestRoute: vi.fn(),
       routeCoordinator: { doesAccountHandleRequest: () => true } as never,
       subscribe: vi.fn(),
