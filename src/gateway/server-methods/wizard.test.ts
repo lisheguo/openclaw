@@ -53,6 +53,15 @@ async function cancelWizardSessions(
     session.cancel();
     await session.whenSettled();
   }
+  await waitForSetupAdmissionRelease();
+}
+
+async function waitForSetupAdmissionRelease() {
+  await vi.waitFor(async () => {
+    await expect(
+      runExclusiveSystemAgentSetupActivation(async () => undefined),
+    ).resolves.toBeUndefined();
+  });
 }
 
 describe("wizard session lookup", () => {
@@ -200,8 +209,7 @@ describe("wizard setup ownership", () => {
       [...tracker.wizardSessions.values()][0],
       "admitted classic setup session",
     );
-    session.cancel();
-    await session.whenSettled();
+    await cancelWizardSessions(tracker.wizardSessions);
   });
 
   it("makes structured setup retry while a classic runner owns admission, then releases", async () => {
@@ -242,6 +250,7 @@ describe("wizard setup ownership", () => {
       "active classic setup session",
     );
     await session.whenSettled();
+    await waitForSetupAdmissionRelease();
     const structuredTask = vi.fn(async () => "ok");
     await expect(runExclusiveSystemAgentSetupActivation(structuredTask)).resolves.toBe("ok");
     expect(structuredTask).toHaveBeenCalledOnce();
