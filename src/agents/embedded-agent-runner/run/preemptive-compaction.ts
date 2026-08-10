@@ -41,6 +41,10 @@ export type PreemptiveCompactionDecision = {
   overflowTokens: number;
   toolResultReducibleChars: number;
   effectiveReserveTokens: number;
+  estimatedInputItems?: number;
+  inputItemsLimit?: number;
+  inputItemsSafetyMargin?: number;
+  shouldCompactByItems?: boolean;
 };
 
 /** Token pressure reported by the rendered provider-boundary prompt when available. */
@@ -255,6 +259,50 @@ function estimateMessageTokenPressure(message: AgentMessage): number {
  * optional system prompt, and current prompt text. The result intentionally
  * includes a safety margin because this path runs before provider tokenization.
  */
+/**
+ * Estimates the number of input items a provider will count for the given
+ * messages. Providers such as Volcengine Ark (Responses API) cap input items
+ * (e.g. 1000) separately from token budget; once exceeded they reject the
+ * request with "Maximum of 1000 items allowed in input". This counts one base
+ * item per message plus one item per extra content block that maps to a
+ * distinct provider item (tool call, tool result, thinking, image, file). The
+ * ratio (roughly 1.3 items per message in tool-heavy sessions) tracks observed
+ * provider counts closely enough to trigger pre-prompt compaction before the
+ * hard cap is reached.
+ */
+export function estimateInputItems(messages: AgentMessage[]): number {
+  let items = 0;
+  for (const message of messages) {
+    const record = message as unknown as Record<string, unknown>;
+    items += 1; // base message item
+    const content = record.content;
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (typeof block !== "object" || block === null) continue;
+        const b = block as Record<string, unknown>;
+        const type = typeof b.type === "string" ? b.type : "";
+        if (
+          type === "toolCall" ||
+          type === "tool_use" ||
+          type === "toolResult" ||
+          type === "tool_result" ||
+          type === "thinking" ||
+          type === "image" ||
+          type === "image_url" ||
+          type === "file"
+        ) {
+          items += 1;
+        }
+      }
+    }
+    const toolCalls = record.toolCalls ?? record.tool_calls;
+    if (Array.isArray(toolCalls)) {
+      items += toolCalls.length;
+    }
+  }
+  return items;
+}
+
 export function estimateLlmBoundaryTokenPressure(params: {
   messages: AgentMessage[];
   systemPrompt?: string;
@@ -317,6 +365,8 @@ export function shouldPreemptivelyCompactBeforePrompt(params: {
   reserveTokens: number;
   toolResultMaxChars?: number;
   llmBoundaryTokenPressure?: LlmBoundaryTokenPressure;
+  maxInputItems?: number;
+  inputItemsSafetyMargin?: number;
 }): PreemptiveCompactionDecision {
   let messagesForPressure = params.messages;
   const llmBoundaryTokenPressure = normalizeLlmBoundaryTokenPressure(
@@ -368,8 +418,19 @@ export function shouldPreemptivelyCompactBeforePrompt(params: {
   );
   const toolResultReducibleChars = toolResultPotential.maxReducibleChars;
 
+  const effectiveMaxInputItems = Math.max(1, Math.floor(params.maxInputItems ?? 1000));
+  const effectiveItemsSafetyMargin = Math.max(0, Math.floor(params.inputItemsSafetyMargin ?? 150));
+  const estimatedInputItems = estimateInputItems(messagesForPressure);
+  const inputItemsOverflow =
+    estimatedInputItems >= effectiveMaxInputItems - effectiveItemsSafetyMargin;
+
   let route: PreemptiveCompactionRoute = "fits";
-  if (overflowTokens > 0) {
+  // Volcengine Ark (Responses API) hard-caps input items (e.g. 1000); exceeding it rejects the
+  // request with "Maximum of 1000 items allowed in input". Prioritize items overflow so compaction
+  // fires before the hard cap is reached, independent of token budget.
+  if (inputItemsOverflow) {
+    route = "compact_items_overflow";
+  } else if (overflowTokens > 0) {
     // Choose truncate-only only when available reduction comfortably exceeds the overflow.
     if (toolResultReducibleChars <= 0) {
       route = "compact_only";
@@ -381,7 +442,14 @@ export function shouldPreemptivelyCompactBeforePrompt(params: {
   }
   return {
     route,
-    shouldCompact: route === "compact_only" || route === "compact_then_truncate",
+    shouldCompact:
+      route === "compact_only" ||
+      route === "compact_then_truncate" ||
+      route === "compact_items_overflow",
+    shouldCompactByItems: inputItemsOverflow,
+    estimatedInputItems,
+    inputItemsLimit: effectiveMaxInputItems,
+    inputItemsSafetyMargin: effectiveItemsSafetyMargin,
     estimatedPromptTokens,
     pressureSource,
     promptBudgetBeforeReserve,
@@ -414,6 +482,10 @@ export function formatPrePromptPrecheckLog(params: {
     `pressureSource=${result.pressureSource ?? "unknown"} ` +
     `promptBudgetBeforeReserve=${result.promptBudgetBeforeReserve} ` +
     `overflowTokens=${result.overflowTokens} ` +
+    `estimatedInputItems=${result.estimatedInputItems ?? "unknown"} ` +
+    `inputItemsLimit=${result.inputItemsLimit ?? "unknown"} ` +
+    `inputItemsSafetyMargin=${result.inputItemsSafetyMargin ?? "unknown"} ` +
+    `shouldCompactByItems=${result.shouldCompactByItems ?? false} ` +
     `toolResultReducibleChars=${result.toolResultReducibleChars} ` +
     `reserveTokens=${params.reserveTokens} ` +
     `effectiveReserveTokens=${result.effectiveReserveTokens} ` +
@@ -457,6 +529,18 @@ export function buildPrePromptContextBudgetStatus(params: {
     remainingPromptBudgetTokens,
     overflowTokens: result.overflowTokens,
     toolResultReducibleChars: result.toolResultReducibleChars,
+    ...(typeof result.estimatedInputItems === "number"
+      ? { estimatedInputItems: result.estimatedInputItems }
+      : {}),
+    ...(typeof result.inputItemsLimit === "number"
+      ? { inputItemsLimit: result.inputItemsLimit }
+      : {}),
+    ...(typeof result.inputItemsSafetyMargin === "number"
+      ? { inputItemsSafetyMargin: result.inputItemsSafetyMargin }
+      : {}),
+    ...(typeof result.shouldCompactByItems === "boolean"
+      ? { shouldCompactByItems: result.shouldCompactByItems }
+      : {}),
     messageCount: Math.max(0, Math.floor(params.messageCount)),
     unwindowedMessageCount: Math.max(
       0,

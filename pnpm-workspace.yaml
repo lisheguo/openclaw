@@ -94,6 +94,12 @@ minimumReleaseAgeExclude:
 nodeLinker: hoisted
 blockExoticSubdeps: true
 
+supportedArchitectures:
+  os:
+    - linux
+  cpu:
+    - x64
+
 overrides:
   "@anthropic-ai/sdk": 0.109.1
   "@opentelemetry/core": 2.8.0

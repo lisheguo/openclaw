@@ -76,6 +76,85 @@ function makeAssistantToolCall(args: unknown): AgentMessage {
 }
 
 describe("preemptive-compaction", () => {
+  describe("input items observability and overflow routing", () => {
+    const makeInputItemMessage = (index: number): AgentMessage =>
+      ({
+        role: "user",
+        content: [{ type: "text", text: `message-${index}` }],
+        timestamp: index + 10_000,
+      }) as AgentMessage;
+
+    it("does not trigger compact_items_overflow below item threshold", () => {
+      const result = shouldPreemptivelyCompactBeforePrompt({
+        messages: Array.from({ length: 848 }, (_, index) => makeInputItemMessage(index)),
+        prompt: "hello",
+        contextTokenBudget: 128_000,
+        reserveTokens: 32_000,
+        maxInputItems: 1000,
+        inputItemsSafetyMargin: 150,
+      });
+
+      expect(result.route).not.toBe("compact_items_overflow");
+      expect(result.shouldCompactByItems).toBe(false);
+      expect(result.estimatedInputItems).toBe(849);
+    });
+
+    it("triggers compact_items_overflow at item threshold", () => {
+      const result = shouldPreemptivelyCompactBeforePrompt({
+        messages: Array.from({ length: 849 }, (_, index) => makeInputItemMessage(index)),
+        prompt: "hello",
+        contextTokenBudget: 128_000,
+        reserveTokens: 32_000,
+        maxInputItems: 1000,
+        inputItemsSafetyMargin: 150,
+      });
+
+      expect(result.route).toBe("compact_items_overflow");
+      expect(result.shouldCompact).toBe(true);
+      expect(result.shouldCompactByItems).toBe(true);
+      expect(result.estimatedInputItems).toBe(850);
+      expect(result.inputItemsLimit).toBe(1000);
+      expect(result.inputItemsSafetyMargin).toBe(150);
+    });
+
+    it("persists and logs input item fields", () => {
+      const result = shouldPreemptivelyCompactBeforePrompt({
+        messages: Array.from({ length: 849 }, (_, index) => makeInputItemMessage(index)),
+        prompt: "hello",
+        contextTokenBudget: 128_000,
+        reserveTokens: 32_000,
+        maxInputItems: 1000,
+        inputItemsSafetyMargin: 150,
+      });
+
+      const status = buildPrePromptContextBudgetStatus({
+        result,
+        provider: "volcengine-agent-plan",
+        modelId: "glm-5.2",
+        messageCount: 849,
+        contextTokenBudget: 128_000,
+        reserveTokens: 32_000,
+      });
+      expect(status.estimatedInputItems).toBe(850);
+      expect(status.inputItemsLimit).toBe(1000);
+      expect(status.inputItemsSafetyMargin).toBe(150);
+      expect(status.shouldCompactByItems).toBe(true);
+
+      const line = formatPrePromptPrecheckLog({
+        result,
+        provider: "volcengine-agent-plan",
+        modelId: "glm-5.2",
+        messageCount: 849,
+        contextTokenBudget: 128_000,
+        reserveTokens: 32_000,
+      });
+      expect(line).toContain("estimatedInputItems=850");
+      expect(line).toContain("inputItemsLimit=1000");
+      expect(line).toContain("inputItemsSafetyMargin=150");
+      expect(line).toContain("shouldCompactByItems=true");
+    });
+  });
+
   const verboseHistory =
     "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu ".repeat(40);
   const verboseSystem =
