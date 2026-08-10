@@ -12,10 +12,7 @@ import {
   isSkillCollectionReviewDue,
   recordSkillCollectionReviewSuccess,
 } from "./collection-review-state.js";
-import {
-  runScheduledSkillCollectionReviews,
-  runSkillCollectionReview,
-} from "./collection-review.js";
+import { runScheduledSkillCollectionReviews } from "./collection-review.js";
 
 const runEmbeddedAgent = vi.hoisted(() => vi.fn());
 const authStoresByAgentDir = vi.hoisted(() => new Map<string, unknown>());
@@ -72,19 +69,25 @@ describe("skill collection review", () => {
       return {};
     });
 
-    await expect(
-      runSkillCollectionReview({
-        agentId: "main",
-        config: {
-          agents: {
-            list: [{ id: "main", default: true, model: "openai/gpt-5.6-sol@openai:work" }],
-          },
-          skills: { workshop: { autonomous: { mode: "auto" } } },
+    const onError = vi.fn();
+    await runScheduledSkillCollectionReviews({
+      config: {
+        agents: {
+          list: [
+            {
+              id: "main",
+              default: true,
+              model: "openai/gpt-5.6-sol@openai:work",
+              workspace: workspaceDir,
+            },
+          ],
         },
-        workspaceDir,
-        env: testState.env,
-      }),
-    ).resolves.toMatchObject({ kept: ["useful"], written: [], dropped: [] });
+        skills: { workshop: { autonomous: { mode: "auto" } } },
+      },
+      env: testState.env,
+      onError,
+    });
+    expect(onError).not.toHaveBeenCalled();
     expect(runEmbeddedAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         trigger: "cron",
@@ -131,12 +134,16 @@ describe("skill collection review", () => {
       return {};
     });
 
-    await runSkillCollectionReview({
-      agentId: "main",
-      config: { skills: { workshop: { autonomous: { mode: "auto" } } } },
-      workspaceDir,
+    const onError = vi.fn();
+    await runScheduledSkillCollectionReviews({
+      config: {
+        agents: { list: [{ id: "main", default: true, workspace: workspaceDir }] },
+        skills: { workshop: { autonomous: { mode: "auto" } } },
+      },
       env: testState.env,
+      onError,
     });
+    expect(onError).not.toHaveBeenCalled();
   });
 
   it("persists the daily boundary per workspace", async () => {
@@ -189,18 +196,28 @@ describe("skill collection review", () => {
       return {};
     });
 
-    await runSkillCollectionReview({
-      agentId: "main",
+    const onError = vi.fn();
+    await runScheduledSkillCollectionReviews({
       config: {
-        agents: { list: [{ id: "main", skills: ["enabled", "disabled"] }] },
+        agents: {
+          list: [
+            {
+              id: "main",
+              default: true,
+              workspace: workspaceDir,
+              skills: ["enabled", "disabled"],
+            },
+          ],
+        },
         skills: {
           entries: { disabled: { enabled: false } },
           workshop: { autonomous: { mode: "auto" } },
         },
       },
-      workspaceDir,
       env: testState.env,
+      onError,
     });
+    expect(onError).not.toHaveBeenCalled();
 
     expect((await fs.readdir(path.join(workspaceDir, "skills"))).toSorted()).toEqual([
       "agent-filtered",
@@ -503,14 +520,16 @@ describe("skill collection review", () => {
       },
     ]);
 
-    await expect(
-      runSkillCollectionReview({
-        agentId: "main",
-        config: { skills: { workshop: { autonomous: { mode: "auto" } } } },
-        workspaceDir,
-        env: testState.env,
-      }),
-    ).rejects.toThrow("review limit");
+    const onError = vi.fn();
+    await runScheduledSkillCollectionReviews({
+      config: {
+        agents: { list: [{ id: "main", default: true, workspace: workspaceDir }] },
+        skills: { workshop: { autonomous: { mode: "auto" } } },
+      },
+      env: testState.env,
+      onError,
+    });
+    expect(String(onError.mock.calls[0]?.[0])).toContain("review limit");
     expect(runEmbeddedAgent).not.toHaveBeenCalled();
   });
 });
