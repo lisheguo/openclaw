@@ -31,6 +31,8 @@ import { isWorkerTranscriptMessageFrameSafe } from "./transcript-message.js";
 const LAUNCH_VERSION = 2;
 
 type WorkerLaunchAssignment = {
+  /** Host placement namespace used for worker-local policy, hooks, and audit attribution. */
+  agentId: string;
   operationalRunInstance: OperationalRunInstanceRef;
   /** Opaque host-signed runtime envelope; worker code never parses private identity. */
   agentRuntimeIdentityToken: string;
@@ -108,6 +110,7 @@ function parseAssignment(value: unknown): WorkerLaunchAssignment | undefined {
     !hasExactKeys(
       value,
       [
+        "agentId",
         "runId",
         "operationalRunInstance",
         "agentRuntimeIdentityToken",
@@ -128,6 +131,7 @@ function parseAssignment(value: unknown): WorkerLaunchAssignment | undefined {
     return undefined;
   }
   if (
+    !isIdentifier(value.agentId) ||
     !isIdentifier(value.runId) ||
     !isRecord(value.operationalRunInstance) ||
     !isIdentifier(value.operationalRunInstance.instanceId) ||
