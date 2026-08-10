@@ -26,4 +26,13 @@ describe("assertSignalSetupDaemonBindAvailable", () => {
       });
     }
   });
+
+  it("preserves an unavailable-address bind failure", async () => {
+    await expect(
+      assertSignalSetupDaemonBindAvailable({
+        httpHost: "192.0.2.1",
+        httpPort: 8080,
+      }),
+    ).rejects.toThrow("address is not available on this machine (EADDRNOTAVAIL)");
+  });
 });

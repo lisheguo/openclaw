@@ -111,6 +111,24 @@ describe("managed Signal validation", () => {
     expect(mocks.spawnSignalDaemon).not.toHaveBeenCalled();
   });
 
+  it("does not reuse a running daemon whose selected account cannot be verified", async () => {
+    mocks.probeSignalTransport.mockResolvedValueOnce({
+      ok: false,
+      error: "bound account cannot be verified",
+    });
+    const transport = resolvedManagedTransport();
+
+    await expect(
+      evaluateLiveManagedTransport({
+        cfg: configuredManagedSignalConfig(),
+        accountId: "work",
+        account: "+15555550124",
+        activeTransport: transport,
+        candidateTransport: transport,
+      }),
+    ).resolves.toBe("not-running");
+  });
+
   it("uses a temporary port when a live account changes to a different explicit data store", async () => {
     const activeTransport = resolvedManagedTransport({ configPath: "/var/lib/signal-cli-active" });
     const candidateTransport = resolvedManagedTransport({
@@ -150,6 +168,9 @@ describe("managed Signal validation", () => {
     expect(mocks.spawnSignalDaemon.mock.calls[0]?.[0]).toMatchObject({
       receiveMode: "manual",
     });
+    expect(mocks.probeSignalTransport).toHaveBeenLastCalledWith(
+      expect.objectContaining({ nativeAccountBinding: "spawned-bound-account" }),
+    );
     expect(mocks.spawnSignalDaemon.mock.calls[0]?.[0].httpPort).not.toBe(8080);
   });
 

@@ -16,6 +16,7 @@ import {
 import { clearLegacySignalTransportFieldsForAccount } from "./config-compat.js";
 import type {
   SignalContainerTransportProbe,
+  SignalNativeAccountBinding,
   SignalNativeTransportProbe,
   SignalTransportProbeResult,
 } from "./transport-detection.js";
@@ -266,6 +267,7 @@ export async function probeSignalTransport(params: {
   timeoutMs?: number;
   probeNative?: SignalNativeTransportProbe;
   probeContainer?: SignalContainerTransportProbe;
+  nativeAccountBinding?: SignalNativeAccountBinding;
 }): Promise<SignalTransportProbeResult> {
   const timeoutMs = params.timeoutMs ?? 10_000;
   const transport =
@@ -283,8 +285,13 @@ export async function probeSignalTransport(params: {
     return probeContainer(resolved.baseUrl, timeoutMs, params.account);
   }
   const probeNative =
-    params.probeNative ?? (await import("./transport-probes.runtime.js")).nativeCheck;
-  return probeNative(resolved.baseUrl, timeoutMs);
+    params.probeNative ?? (await import("./transport-probes.runtime.js")).nativeAccountCheck;
+  return probeNative(
+    resolved.baseUrl,
+    timeoutMs,
+    params.account,
+    params.nativeAccountBinding ?? "selected-account",
+  );
 }
 
 export function writeSignalAccountTransport(params: {

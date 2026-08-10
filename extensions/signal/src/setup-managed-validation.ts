@@ -211,6 +211,7 @@ export async function probeManagedSignalSetup(params: {
           accountId: params.accountId,
           transport: bindTransport,
           account: params.account,
+          nativeAccountBinding: "spawned-bound-account",
           timeoutMs: 1_000,
         }).catch((error: unknown) => ({ ok: false, error: String(error) }));
         if (probe.ok) {

@@ -866,7 +866,7 @@ describe("signalSetupWizard", () => {
       .mockResolvedValueOnce({ ok: true, status: 200 });
     const queued = createQueuedWizardPrompter({
       selectValues: ["url"],
-      textValues: ["http://signal-helper-new:8080"],
+      textValues: ["+15555550123", "http://signal-helper-new:8080"],
     });
 
     const finalized = await runSetupWizardFinalize({
@@ -891,7 +891,7 @@ describe("signalSetupWizard", () => {
     });
   });
 
-  it("prompts for an account when URL recovery changes to a container", async () => {
+  it("keeps the selected account when URL recovery changes to a container", async () => {
     mocks.probeSignalTransport
       .mockResolvedValueOnce({ ok: false, error: "receive probe failed" })
       .mockResolvedValueOnce({ ok: true, status: 200 });
@@ -901,7 +901,7 @@ describe("signalSetupWizard", () => {
     });
     const queued = createQueuedWizardPrompter({
       selectValues: ["url"],
-      textValues: ["http://signal-helper-new:8080", "+15555550123"],
+      textValues: ["+15555550123", "http://signal-helper-new:8080"],
     });
 
     const finalized = await runSetupWizardFinalize({
@@ -918,11 +918,11 @@ describe("signalSetupWizard", () => {
 
     expect(queued.text).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ message: "Signal server URL" }),
+      expect.objectContaining({ message: "Signal phone number" }),
     );
     expect(queued.text).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ message: "Signal phone number" }),
+      expect.objectContaining({ message: "Signal server URL" }),
     );
     expect(mocks.probeSignalTransport).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -939,7 +939,10 @@ describe("signalSetupWizard", () => {
     mocks.probeSignalTransport
       .mockResolvedValueOnce({ ok: false, error: "not ready" })
       .mockResolvedValueOnce({ ok: true, status: 200 });
-    const queued = createQueuedWizardPrompter({ selectValues: ["retry"] });
+    const queued = createQueuedWizardPrompter({
+      selectValues: ["retry"],
+      textValues: ["+15555550123"],
+    });
 
     await runSetupWizardFinalize({
       finalize: signalSetupWizard.finalize,
@@ -988,8 +991,8 @@ describe("signalSetupWizard", () => {
     });
   });
 
-  it("allows an unambiguous external-native server without a Signal account", async () => {
-    const queued = createQueuedWizardPrompter();
+  it("requires an account before validating an external-native server", async () => {
+    const queued = createQueuedWizardPrompter({ textValues: ["+15555550123"] });
 
     const finalized = await runSetupWizardFinalize({
       finalize: signalSetupWizard.finalize,
@@ -1002,22 +1005,21 @@ describe("signalSetupWizard", () => {
       runtime: createRuntimeEnv({ throwOnExit: false }),
     });
 
-    expect(queued.text).not.toHaveBeenCalled();
-    expect(mocks.probeSignalTransport).toHaveBeenCalledWith({
-      cfg: {},
-      accountId: "default",
-      transport: { kind: "external-native", url: "http://signal-helper:8080" },
-      account: undefined,
-    });
-    expect(finalized?.cfg?.channels?.signal?.transport).toEqual({
-      kind: "external-native",
-      url: "http://signal-helper:8080",
-    });
+    expect(queued.text).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Signal phone number" }),
+    );
+    expect(mocks.probeSignalTransport).toHaveBeenCalledWith(
+      expect.objectContaining({ account: "+15555550123" }),
+    );
+    expect(finalized?.cfg?.channels?.signal?.account).toBe("+15555550123");
   });
 
   it("stops failed setup with the generic wizard cancellation", async () => {
     mocks.probeSignalTransport.mockResolvedValue({ ok: false, error: "not ready" });
-    const queued = createQueuedWizardPrompter({ selectValues: ["stop"] });
+    const queued = createQueuedWizardPrompter({
+      selectValues: ["stop"],
+      textValues: ["+15555550123"],
+    });
 
     await expect(
       runSetupWizardFinalize({

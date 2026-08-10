@@ -153,7 +153,7 @@ export async function finalizeSignalInteractiveSetup(params: SignalFinalizeParam
     });
   }
 
-  let shouldPromptAccount = !account && transport.kind !== "external-native";
+  let shouldPromptAccount = !account;
 
   while (true) {
     // Account or URL recovery re-enters here so every probe sees matching candidate state.
@@ -235,7 +235,7 @@ export async function finalizeSignalInteractiveSetup(params: SignalFinalizeParam
         prompter: params.prompter,
         initialValue: transport.url,
       });
-      shouldPromptAccount = !account && transport.kind !== "external-native";
+      shouldPromptAccount = !account;
     }
   }
 

@@ -10,9 +10,13 @@ export type SignalTransportProbeResult = {
   error?: string | null;
 };
 
+export type SignalNativeAccountBinding = "selected-account" | "spawned-bound-account";
+
 export type SignalNativeTransportProbe = (
   url: string,
   timeoutMs?: number,
+  account?: string,
+  accountBinding?: SignalNativeAccountBinding,
 ) => Promise<SignalTransportProbeResult>;
 
 export type SignalContainerTransportProbe = (
