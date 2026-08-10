@@ -1,3 +1,4 @@
+import { hostname, networkInterfaces } from "node:os";
 import {
   patchChannelConfigForAccount,
   WizardCancelledError,
@@ -234,6 +235,7 @@ export async function prepareSignalExistingServerSetup(
 
 function aliasesManagedSignalEndpoint(cfg: OpenClawConfig, candidateUrl: string): boolean {
   const normalizedCandidate = normalizeSignalTransportUrl(candidateUrl);
+  const localEndpointAliases = listLocalSignalEndpointAliases();
   return listSignalAccountIds(cfg).some((accountId) => {
     const account = resolveSignalAccount({ cfg, accountId });
     if (!account.configured || account.transport.kind !== "managed-native") {
@@ -242,11 +244,30 @@ function aliasesManagedSignalEndpoint(cfg: OpenClawConfig, candidateUrl: string)
     if (normalizeSignalTransportUrl(account.transport.baseUrl) === normalizedCandidate) {
       return true;
     }
-    return isSignalManagedNativeConnectionUrlForBind({
-      kind: "managed-native",
-      httpHost: account.transport.httpHost,
-      httpPort: account.transport.httpPort,
-      url: normalizedCandidate,
-    });
+    return isSignalManagedNativeConnectionUrlForBind(
+      {
+        kind: "managed-native",
+        httpHost: account.transport.httpHost,
+        httpPort: account.transport.httpPort,
+        url: normalizedCandidate,
+      },
+      { localEndpointAliases },
+    );
   });
+}
+
+function listLocalSignalEndpointAliases(): ReadonlySet<string> {
+  const machineHostname = hostname();
+  const aliases = new Set([machineHostname, `${machineHostname}.local`]);
+  try {
+    for (const entries of Object.values(networkInterfaces())) {
+      for (const entry of entries ?? []) {
+        aliases.add(entry.address);
+      }
+    }
+  } catch {
+    // Restricted runtimes can deny interface enumeration; hostname aliases still protect
+    // wildcard-bound managed daemons from being persisted as independently owned.
+  }
+  return aliases;
 }

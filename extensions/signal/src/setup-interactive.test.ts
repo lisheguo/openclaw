@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import {
   createQueuedWizardPrompter,
@@ -10,6 +11,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SignalTransportProbeResult } from "./setup-transport.js";
 
 const mocks = vi.hoisted(() => ({
+  hostname: vi.fn(() => "signal-host"),
+  networkInterfaces: vi.fn(() => ({})),
   detectSignalTransport: vi.fn(
     async (params: {
       url: string;
@@ -22,6 +25,15 @@ const mocks = vi.hoisted(() => ({
     async (): Promise<SignalTransportProbeResult> => ({ ok: true, status: 200 }),
   ),
 }));
+
+vi.mock("node:os", async () => {
+  const actual = await vi.importActual<typeof import("node:os")>("node:os");
+  return {
+    ...actual,
+    hostname: mocks.hostname,
+    networkInterfaces: mocks.networkInterfaces,
+  };
+});
 
 vi.mock("./setup-transport.js", async () => {
   const actual =
@@ -48,6 +60,8 @@ function toCredentialValues(
 describe("Signal existing-server setup", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.hostname.mockReturnValue("signal-host");
+    mocks.networkInterfaces.mockReturnValue({});
     mocks.detectSignalTransport.mockImplementation(async ({ url }: { url: string }) => ({
       kind: "external-native",
       url,
@@ -178,9 +192,13 @@ describe("Signal existing-server setup", () => {
   });
 
   it("rejects an alias of a managed daemon and accepts an independent server", async () => {
+    mocks.networkInterfaces.mockImplementationOnce(() => {
+      throw new Error("interface enumeration denied");
+    });
+    const machineEndpoint = `http://${hostname()}:8080`;
     const queued = createQueuedWizardPrompter({
       selectValues: ["existing-server", "url"],
-      textValues: ["http://localhost:8080", "http://signal-helper:8080"],
+      textValues: [machineEndpoint, "http://signal-helper:8080"],
     });
 
     const prepared = await runSetupWizardPrepare({
@@ -191,7 +209,7 @@ describe("Signal existing-server setup", () => {
             account: "+15555550123",
             transport: {
               kind: "managed-native",
-              httpHost: "127.0.0.1",
+              httpHost: "0.0.0.0",
               httpPort: 8080,
             },
           },
