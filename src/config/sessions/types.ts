@@ -106,7 +106,7 @@ export type SessionContextBudgetStatus = {
   updatedAt: number;
   provider: string;
   model: string;
-  route: SessionContextBudgetStatusRoute;
+  route: SessionContextBudgetStatusRoute | "compact_items_overflow";
   shouldCompact: boolean;
   estimatedPromptTokens: number;
   contextTokenBudget: number;
@@ -116,6 +116,10 @@ export type SessionContextBudgetStatus = {
   remainingPromptBudgetTokens: number;
   overflowTokens: number;
   toolResultReducibleChars: number;
+  estimatedInputItems?: number;
+  inputItemsLimit?: number;
+  inputItemsSafetyMargin?: number;
+  shouldCompactByItems?: boolean;
   messageCount: number;
   unwindowedMessageCount: number;
   sessionId?: string;

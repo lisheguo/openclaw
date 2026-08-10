@@ -1512,6 +1512,8 @@ export const FIELD_HELP: Record<string, string> = {
     "Minimum token budget preserved from the most recent conversation window during compaction. Use higher values to protect immediate context continuity and lower values to keep more long-tail history.",
   "agents.defaults.compaction.reserveTokensFloor":
     "Minimum floor enforced for reserveTokens in embedded OpenClaw compaction paths (0 disables the floor guard). Use a non-zero floor to avoid over-aggressive compression under fluctuating token estimates.",
+  "agents.defaults.compaction.maxInputItems":
+    "Maximum number of input items (messages plus tool/result/thinking/image blocks) allowed before pre-prompt compaction triggers. Defaults to 1000 to match the Volcengine Ark Responses API hard cap; lower it for providers with smaller item limits. Prevents 'Maximum of 1000 items allowed in input' errors.",
   "agents.defaults.compaction.maxHistoryShare":
     "Maximum fraction of total context budget allowed for retained history after compaction (range 0.1-0.9). Use lower shares for more generation headroom or higher shares for deeper historical continuity.",
   "agents.defaults.compaction.identifierPolicy":

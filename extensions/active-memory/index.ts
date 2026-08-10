@@ -3335,6 +3335,10 @@ async function maybeResolveActiveRecall(params: {
         params.api.logger.info?.(
           `${logPrefix} done status=${result.status} elapsedMs=${String(result.elapsedMs)} summaryChars=${String(result.summary?.length ?? 0)}`,
         );
+        const sd = result.searchDebug ?? {};
+        params.api.logger.warn?.(
+          `${logPrefix} recall-unavailable error=${sd.error ?? "(none)"} backend=${sd.backend ?? "?"} searchMs=${String(sd.searchMs ?? "?")} action=${sd.action ?? "?"}`,
+        );
       }
       resetCircuitBreaker(cbKey);
       params.abortSignal?.throwIfAborted();

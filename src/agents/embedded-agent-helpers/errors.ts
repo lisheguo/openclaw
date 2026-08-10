@@ -159,6 +159,9 @@ export function isContextOverflowError(errorMessage?: string): boolean {
     errorMessage.includes("上下文长度超") ||
     errorMessage.includes("超出最大上下文") ||
     errorMessage.includes("请压缩上下文") ||
+    // Volcengine Ark (Responses API) input item cap, e.g. "Maximum of 1000 items allowed in input"
+    lower.includes("maximum of 1000 items allowed in input") ||
+    errorMessage.includes("Maximum of 1000 items") ||
     // Provider-specific patterns (Bedrock, Azure, Ollama, Mistral, Cohere, etc.)
     matchesProviderContextOverflow(errorMessage)
   );
