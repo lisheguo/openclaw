@@ -4563,7 +4563,10 @@ describe("grouped chat rendering", () => {
       },
     );
     const imageBlob = new Blob(["png"], { type: "image/png" });
-    const fetchMock = vi.fn(async () => ({ ok: true, blob: async () => imageBlob }));
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true,
+      blob: async () => imageBlob,
+    }));
     vi.stubGlobal("fetch", fetchMock);
     let copiedBlob: Blob | undefined;
     class ClipboardItemMock {
@@ -4597,9 +4600,7 @@ describe("grouped chat rendering", () => {
     expectElement(container, 'button[aria-label="Copy image"]', HTMLButtonElement).click();
     await vi.waitFor(() => expect(copiedBlob?.type).toBe("image/png"));
     await vi.waitFor(() => expect(toastHost.textContent).toContain("Copied!"));
-    expect(fetchMock.mock.calls.filter((call: unknown[]) => call[0] === ticketedUrl)).toHaveLength(
-      1,
-    );
+    expect(fetchMock.mock.calls.filter(([url]) => url === ticketedUrl)).toHaveLength(1);
     expect(resolveArtifactDownload).toHaveBeenCalledTimes(2);
     toastHost.remove();
     container.remove();
