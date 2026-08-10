@@ -3,10 +3,11 @@ import {
   createSetupTranslator,
   createDetectedBinaryStatus,
   setSetupChannelEnabled,
+  WizardCancelledError,
   type ChannelSetupWizard,
 } from "openclaw/plugin-sdk/setup";
 import { detectBinary } from "openclaw/plugin-sdk/setup-tools";
-import { listSignalAccountIds, resolveSignalAccount } from "./accounts.js";
+import { listSignalAccountIds, resolveSignalAccount, resolveSignalTransport } from "./accounts.js";
 import { installSignalCli } from "./install-signal-cli.js";
 import {
   createSignalCliPathTextInput,
@@ -22,6 +23,14 @@ import {
   finalizeSignalExistingServerSetup,
   prepareSignalExistingServerSetup,
 } from "./setup-interactive.js";
+import {
+  managedSignalTransportIdentity,
+  probeManagedSignalSetup,
+} from "./setup-managed-validation.js";
+import {
+  prepareSignalManagedNativeTransport,
+  writeSignalAccountTransport,
+} from "./setup-transport.js";
 import { linkSignalCliAccount, listSignalCliAccounts } from "./signal-cli-link.js";
 
 const t = createSetupTranslator();
@@ -103,12 +112,28 @@ export const signalSetupWizard: ChannelSetupWizard = {
     }
 
     const { cfg, credentialValues, runtime, prompter, options } = params;
-    if (!options?.allowSignalInstall) {
-      return undefined;
-    }
-    const transport = resolvedAccount.transport;
+    const switchingToManaged = resolvedAccount.transport.kind !== "managed-native";
+    const transport = switchingToManaged
+      ? resolveSignalTransport(
+          prepareSignalManagedNativeTransport({ cfg, accountId: params.accountId }),
+        )
+      : resolvedAccount.transport;
     if (transport.kind !== "managed-native") {
-      return undefined;
+      throw new Error("Signal setup did not resolve a managed signal-cli transport.");
+    }
+    const originalManagedAccount = normalizeSignalAccountInput(resolvedAccount.config.account);
+    const preparedCredentialValues: Record<string, string> = switchingToManaged
+      ? { [signalSetupStateKeys.transportKind]: "managed-native" }
+      : {
+          [signalSetupStateKeys.managedReuseTransport]: managedSignalTransportIdentity(transport),
+          ...(originalManagedAccount
+            ? {
+                [signalSetupStateKeys.managedReuseAccount]: originalManagedAccount,
+              }
+            : {}),
+        };
+    if (!options?.allowSignalInstall) {
+      return { credentialValues: preparedCredentialValues };
     }
     let currentCliPath =
       (typeof credentialValues.cliPath === "string" ? credentialValues.cliPath : undefined) ??
@@ -120,7 +145,6 @@ export const signalSetupWizard: ChannelSetupWizard = {
       message: cliDetected ? t("wizard.signal.reinstallPrompt") : t("wizard.signal.installPrompt"),
       initialValue: !cliDetected,
     });
-    const preparedCredentialValues: Record<string, string> = {};
     if (wantsInstall) {
       await options?.beforePersistentEffect?.();
       try {
@@ -275,10 +299,63 @@ export const signalSetupWizard: ChannelSetupWizard = {
   },
   finalize: async (params) => {
     const kind = params.credentialValues[signalSetupStateKeys.transportKind];
-    if (kind !== "external-native" && kind !== "container") {
+    if (kind === "external-native" || kind === "container") {
+      return await finalizeSignalExistingServerSetup(params);
+    }
+    const resolvedAccount = resolveSignalAccount({ cfg: params.cfg, accountId: params.accountId });
+    if (kind !== "managed-native" && resolvedAccount.transport.kind !== "managed-native") {
       return undefined;
     }
-    return await finalizeSignalExistingServerSetup(params);
+    const account = normalizeSignalAccountInput(resolvedAccount.config.account);
+    if (!account) {
+      throw new Error("Signal managed setup requires an account number before validation.");
+    }
+    const transport = prepareSignalManagedNativeTransport({
+      cfg: params.cfg,
+      accountId: params.accountId,
+      overrides:
+        typeof params.credentialValues.cliPath === "string"
+          ? { cliPath: params.credentialValues.cliPath }
+          : undefined,
+    });
+    while (true) {
+      const probe = await probeManagedSignalSetup({
+        cfg: params.cfg,
+        accountId: params.accountId,
+        transport,
+        account,
+        reusableConfiguredAccount:
+          params.credentialValues[signalSetupStateKeys.managedReuseAccount],
+        reusableConfiguredTransport:
+          params.credentialValues[signalSetupStateKeys.managedReuseTransport],
+        runtime: params.runtime,
+        prompter: params.prompter,
+      });
+      if (probe.ok) {
+        return {
+          cfg: writeSignalAccountTransport({
+            cfg: params.cfg,
+            accountId: params.accountId,
+            transport,
+          }),
+        };
+      }
+      await params.prompter.note(
+        `OpenClaw could not validate this Signal setup.\n\n${probe.error ?? "Signal transport probe failed."}`,
+        "Signal setup",
+      );
+      const recovery = await params.prompter.select<"retry" | "stop">({
+        message: "How should Signal setup continue?",
+        options: [
+          { value: "retry", label: "Retry this setup" },
+          { value: "stop", label: "Stop Signal setup" },
+        ],
+        initialValue: "retry",
+      });
+      if (recovery === "stop") {
+        throw new WizardCancelledError("Signal setup stopped");
+      }
+    }
   },
   credentials: [],
   textInputs: [

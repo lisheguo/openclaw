@@ -376,6 +376,23 @@ describe("signalAccountCheck", () => {
         "This signal-cli server is bound to one account and does not expose which account it uses. Start it without --account so OpenClaw can verify the selected account, or use OpenClaw-managed local setup.",
     });
   });
+
+  it("accepts a bound single-account daemon when its owner supplied the account", async () => {
+    const baseUrl = await withSignalServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          error: { code: -32601, message: "Method not implemented" },
+          id: "test-id",
+        }),
+      );
+    });
+
+    await expect(
+      signalAccountCheck(baseUrl, 10_000, "+15555550124", "owner-known-bound-account"),
+    ).resolves.toEqual({ ok: true, status: 200, error: null });
+  });
 });
 
 describe("streamSignalEvents", () => {

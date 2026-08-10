@@ -6,6 +6,7 @@ import { generateSecureUuid } from "openclaw/plugin-sdk/core";
 import { formatErrorMessage, toErrorObject } from "openclaw/plugin-sdk/error-runtime";
 import { resolveTimerTimeoutMs } from "openclaw/plugin-sdk/number-runtime";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import type { SignalNativeAccountBinding } from "./transport-detection.js";
 
 export type SignalRpcOptions = {
   baseUrl: string;
@@ -249,6 +250,7 @@ export async function signalAccountCheck(
   baseUrl: string,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   account?: string,
+  accountBinding: SignalNativeAccountBinding = "selected-account",
 ): Promise<{ ok: boolean; status?: number | null; error?: string | null }> {
   if (!account) {
     return {
@@ -287,6 +289,11 @@ export async function signalAccountCheck(
     return { ok: true, status: 200, error: null };
   } catch (error) {
     if (error instanceof SignalRpcRequestError && error.rpcCode === -32601) {
+      if (accountBinding === "owner-known-bound-account") {
+        // A daemon owner binds the process to this account before probing. Single-account
+        // signal-cli omits listAccounts, so process ownership is the identity proof here.
+        return { ok: true, status: 200, error: null };
+      }
       return {
         ok: false,
         status: 200,

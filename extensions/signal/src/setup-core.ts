@@ -48,6 +48,8 @@ export const SIGNAL_LINK_COMPLETED_INPUT_KEY = "signalLinkCompleted";
 export const signalSetupStateKeys = {
   transportKind: "signalTransportKind",
   serverUrl: "signalServerUrl",
+  managedReuseAccount: "signalManagedReuseAccount",
+  managedReuseTransport: "signalManagedReuseTransport",
 } as const;
 
 const signalSetupFields = {

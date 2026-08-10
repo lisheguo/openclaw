@@ -521,7 +521,12 @@ describe("probeSignalTransport", () => {
         probeNative,
       }),
     ).resolves.toEqual({ ok: true });
-    expect(probeNative).toHaveBeenCalledWith("http://127.0.0.1:8081", 10_000, "+15555550124");
+    expect(probeNative).toHaveBeenCalledWith(
+      "http://127.0.0.1:8081",
+      10_000,
+      "+15555550124",
+      "selected-account",
+    );
   });
 
   it("passes the selected account to external native readiness", async () => {
@@ -536,7 +541,12 @@ describe("probeSignalTransport", () => {
         probeNative,
       }),
     ).resolves.toEqual({ ok: true });
-    expect(probeNative).toHaveBeenCalledWith("http://signal:8080", 10_000, "+15555550123");
+    expect(probeNative).toHaveBeenCalledWith(
+      "http://signal:8080",
+      10_000,
+      "+15555550123",
+      "selected-account",
+    );
   });
 });
 

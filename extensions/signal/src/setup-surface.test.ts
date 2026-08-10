@@ -10,7 +10,12 @@ import { detectBinary } from "openclaw/plugin-sdk/setup-tools";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { signalSetupPlugin } from "./channel.setup.js";
 import { installSignalCli } from "./install-signal-cli.js";
-import { SIGNAL_LINK_COMPLETED_INPUT_KEY, SIGNAL_LINKED_ACCOUNT_INPUT_KEY } from "./setup-core.js";
+import {
+  SIGNAL_LINK_COMPLETED_INPUT_KEY,
+  SIGNAL_LINKED_ACCOUNT_INPUT_KEY,
+  signalSetupStateKeys,
+} from "./setup-core.js";
+import { probeManagedSignalSetup } from "./setup-managed-validation.js";
 import { signalSetupWizard } from "./setup-surface.js";
 import { linkSignalCliAccount, listSignalCliAccounts } from "./signal-cli-link.js";
 
@@ -23,11 +28,16 @@ vi.mock("./signal-cli-link.js", () => ({
   linkSignalCliAccount: vi.fn(),
   listSignalCliAccounts: vi.fn(),
 }));
+vi.mock("./setup-managed-validation.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./setup-managed-validation.js")>();
+  return { ...original, probeManagedSignalSetup: vi.fn() };
+});
 
 const detectBinaryMock = vi.mocked(detectBinary);
 const installSignalCliMock = vi.mocked(installSignalCli);
 const linkSignalCliAccountMock = vi.mocked(linkSignalCliAccount);
 const listSignalCliAccountsMock = vi.mocked(listSignalCliAccounts);
+const probeManagedSignalSetupMock = vi.mocked(probeManagedSignalSetup);
 
 function createConfig(account?: string) {
   return {
@@ -96,12 +106,14 @@ function configure(
   });
 }
 
-function linkedCredentials(signalNumber = "+15555550123") {
+function linkedCredentials(signalNumber = "+15555550123", originalAccount?: string) {
   return {
     credentialValues: {
       signalNumber,
       signalLinkedAccount: "true",
       signalLinkCompleted: "true",
+      [signalSetupStateKeys.managedReuseTransport]: expect.any(String),
+      ...(originalAccount ? { [signalSetupStateKeys.managedReuseAccount]: originalAccount } : {}),
     },
   };
 }
@@ -117,9 +129,63 @@ beforeEach(() => {
   });
   listSignalCliAccountsMock.mockReset();
   listSignalCliAccountsMock.mockResolvedValue({ ok: true, accounts: [] });
+  probeManagedSignalSetupMock.mockReset();
+  probeManagedSignalSetupMock.mockResolvedValue({ ok: true, status: 200 });
 });
 
 describe("signalSetupWizard QR linking", () => {
+  it("switches an existing server account to managed setup only after validation", async () => {
+    listSignalCliAccountsMock.mockResolvedValueOnce({
+      ok: true,
+      accounts: ["+15555550123"],
+    });
+    const queued = createQueuedWizardPrompter({ selectValues: ["local"] });
+    const cfg = {
+      channels: {
+        signal: {
+          account: "+15555550123",
+          transport: { kind: "external-native" as const, url: "http://signal:8080" },
+        },
+      },
+    };
+
+    const result = await configure({
+      cfg,
+      prompter: { ...createQrPrompter(), select: queued.prompter.select },
+    });
+
+    expect(probeManagedSignalSetupMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        account: "+15555550123",
+        transport: expect.objectContaining({ kind: "managed-native" }),
+      }),
+    );
+    expect(result.cfg.channels?.signal?.transport).toEqual(
+      expect.objectContaining({ kind: "managed-native" }),
+    );
+  });
+
+  it("carries managed reuse identity through install-disabled prepare and finalize", async () => {
+    const cfg = createConfig("+15555550123");
+
+    await configure({
+      cfg,
+      options: {
+        allowSignalInstall: false,
+        skipConfirm: true,
+        skipDmPolicyPrompt: true,
+      },
+    });
+
+    expect(probeManagedSignalSetupMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reusableConfiguredAccount: "+15555550123",
+        reusableConfiguredTransport: expect.any(String),
+      }),
+    );
+    expect(listSignalCliAccountsMock).not.toHaveBeenCalled();
+  });
+
   it("requires confirmation before replacing a configured account with the sole result", async () => {
     listSignalCliAccountsMock.mockResolvedValueOnce({
       ok: true,
@@ -129,7 +195,7 @@ describe("signalSetupWizard QR linking", () => {
 
     await expect(
       prepare({ cfg: createConfig("+15555550123"), prompter: { ...createQrPrompter(), confirm } }),
-    ).resolves.toEqual(linkedCredentials("+15555550124"));
+    ).resolves.toEqual(linkedCredentials("+15555550124", "+15555550123"));
     expect(confirm).toHaveBeenLastCalledWith({
       message: "Use +15555550124 instead of configured Signal account +15555550123?",
       initialValue: false,
@@ -165,7 +231,7 @@ describe("signalSetupWizard QR linking", () => {
     });
 
     await expect(prepare({ cfg: createConfig("signal:+1 (555) 555-0123") })).resolves.toEqual(
-      linkedCredentials(),
+      linkedCredentials("+15555550123", "+15555550123"),
     );
     expect(linkSignalCliAccountMock).not.toHaveBeenCalled();
   });
@@ -198,7 +264,11 @@ describe("signalSetupWizard QR linking", () => {
         accountId: "work",
         prompter: createQrPrompter({ confirmValues: [false, false] }),
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({
+      credentialValues: {
+        [signalSetupStateKeys.managedReuseTransport]: expect.any(String),
+      },
+    });
     expect(linkSignalCliAccountMock).not.toHaveBeenCalled();
   });
 
@@ -264,7 +334,11 @@ describe("signalSetupWizard QR linking", () => {
     listSignalCliAccountsMock.mockResolvedValueOnce({ ok: false, error: "store locked" });
     const note = vi.fn<WizardPrompter["note"]>(async () => undefined);
 
-    await expect(prepare({ prompter: { ...createQrPrompter(), note } })).resolves.toBeUndefined();
+    await expect(prepare({ prompter: { ...createQrPrompter(), note } })).resolves.toEqual({
+      credentialValues: {
+        [signalSetupStateKeys.managedReuseTransport]: expect.any(String),
+      },
+    });
     expect(note).toHaveBeenCalledWith("store locked", "Signal account detection");
     expect(linkSignalCliAccountMock).not.toHaveBeenCalled();
   });
@@ -319,18 +393,29 @@ describe("signalSetupWizard QR linking", () => {
   });
 
   it("does not link when setup cannot or should not present a QR", async () => {
-    expect(await prepare({ options: { allowSignalInstall: false } })).toBeUndefined();
+    expect(await prepare({ options: { allowSignalInstall: false } })).toEqual({
+      credentialValues: {
+        [signalSetupStateKeys.managedReuseTransport]: expect.any(String),
+      },
+    });
     expect(
       await prepare({
         cfg: createConfig("+15555550123"),
         prompter: createQrPrompter({ confirmValues: [false, false] }),
       }),
-    ).toBeUndefined();
+    ).toEqual({
+      credentialValues: {
+        [signalSetupStateKeys.managedReuseAccount]: "+15555550123",
+        [signalSetupStateKeys.managedReuseTransport]: expect.any(String),
+      },
+    });
 
     detectBinaryMock.mockResolvedValue(false);
-    expect(
-      await prepare({ prompter: createQrPrompter({ confirmValues: [false] }) }),
-    ).toBeUndefined();
+    expect(await prepare({ prompter: createQrPrompter({ confirmValues: [false] }) })).toEqual({
+      credentialValues: {
+        [signalSetupStateKeys.managedReuseTransport]: expect.any(String),
+      },
+    });
     expect(listSignalCliAccountsMock).toHaveBeenCalledOnce();
     expect(linkSignalCliAccountMock).not.toHaveBeenCalled();
   });
@@ -386,6 +471,7 @@ describe("signalSetupWizard QR linking", () => {
       credentialValues: {
         [SIGNAL_LINK_COMPLETED_INPUT_KEY]: "true",
         [SIGNAL_LINKED_ACCOUNT_INPUT_KEY]: "true",
+        [signalSetupStateKeys.managedReuseTransport]: expect.any(String),
         signalNumber: "+15555550123",
       },
     });
