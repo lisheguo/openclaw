@@ -604,12 +604,12 @@ catalog, API-key auth, and dynamic model resolution.
             session_id: ctx.sessionId ?? "",
             turn_id: ctx.turnId,
           },
-        }),
-        resolveWebSocketSessionPolicy: (ctx) => ({
-          headers: {
-            "x-session-id": ctx.sessionId ?? "",
+          websocket: {
+            headers: {
+              "x-session-id": ctx.sessionId ?? "",
+            },
+            degradeCooldownMs: 60_000,
           },
-          degradeCooldownMs: 60_000,
         }),
         ```
       </Tab>
@@ -687,8 +687,7 @@ catalog, API-key auth, and dynamic model resolution.
       | `prepareExtraParams` | Default request params |
       | `createStreamFn` | Fully custom StreamFn transport |
       | `wrapStreamFn` | Custom headers/body wrappers on the normal stream path |
-      | `resolveTransportTurnState` | Native per-turn headers/metadata |
-      | `resolveWebSocketSessionPolicy` | Native WS session headers/cool-down |
+      | `resolveTransportTurnState` | Native per-turn headers/metadata and WebSocket headers/cool-down |
       | `formatApiKey` | Custom runtime token shape |
       | `loginOAuth` | Callback-based OAuth login for the session SDK `AuthStorage` API |
       | `refreshOAuth` | Custom OAuth refresh |

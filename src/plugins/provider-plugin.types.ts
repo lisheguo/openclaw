@@ -80,8 +80,6 @@ import type {
   ProviderWrapStreamFnContext,
   ProviderTransportTurnState,
   ProviderResolveTransportTurnStateContext,
-  ProviderWebSocketSessionPolicy,
-  ProviderResolveWebSocketSessionPolicyContext,
   ProviderFailoverErrorContext,
   PluginEmbeddingProvider,
   ProviderCreateEmbeddingProviderContext,
@@ -329,16 +327,6 @@ export type ProviderPlugin = {
   resolveTransportTurnState?: (
     ctx: ProviderResolveTransportTurnStateContext,
   ) => ProviderTransportTurnState | null | undefined;
-  /**
-   * Provider-owned WebSocket session policy.
-   *
-   * Use this when a provider wants generic WebSocket transports to attach
-   * native session headers or tune the session-scoped cool-down before HTTP
-   * fallback.
-   */
-  resolveWebSocketSessionPolicy?: (
-    ctx: ProviderResolveWebSocketSessionPolicyContext,
-  ) => ProviderWebSocketSessionPolicy | null | undefined;
   /**
    * Provider-owned embedding provider factory.
    *

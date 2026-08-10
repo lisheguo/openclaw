@@ -52,6 +52,7 @@ const resolveBundledProviderPolicySurfaceMock = vi.fn<ResolveBundledProviderPoli
 const providerRuntimeWarnMock = vi.fn();
 
 let getAiTransportHost: typeof import("@openclaw/ai").getAiTransportHost;
+let attachModelProviderRuntimePluginHandle: typeof import("./provider-hook-runtime.js").attachModelProviderRuntimePluginHandle;
 let augmentModelCatalogWithProviderPlugins: typeof import("./provider-runtime.js").augmentModelCatalogWithProviderPlugins;
 let buildProviderAuthDoctorHintWithPlugin: typeof import("./provider-runtime.js").buildProviderAuthDoctorHintWithPlugin;
 let buildProviderMissingAuthMessageWithPlugin: typeof import("./provider-runtime.js").buildProviderMissingAuthMessageWithPlugin;
@@ -355,6 +356,7 @@ describe("provider-runtime", () => {
       wrapProviderSimpleCompletionStreamFn,
       wrapProviderStreamFn,
     } = await import("./provider-runtime.js"));
+    ({ attachModelProviderRuntimePluginHandle } = await import("./provider-hook-runtime.js"));
     await import("../agents/ai-transport-runtime-host.js");
     ({ getAiTransportHost } = await import("@openclaw/ai"));
     ({ createEmptyPluginRegistry } = await import("./registry.js"));
@@ -799,6 +801,44 @@ describe("provider-runtime", () => {
     ).toEqual({ headers: { "x-demo-turn": "turn-1" } });
     expect(resolveTransportTurnState).toHaveBeenCalledOnce();
     expect(resolvePluginProvidersMock).not.toHaveBeenCalled();
+  });
+
+  it("reuses the attempt-prepared provider handle at the model transport boundary", () => {
+    const resolveTransportTurnState = vi.fn(() => ({
+      headers: { "x-demo-turn": "turn-1" },
+    }));
+    const provider: ProviderPlugin = {
+      id: DEMO_PROVIDER_ID,
+      label: "Demo",
+      auth: [],
+      resolveTransportTurnState,
+    };
+    const model = attachModelProviderRuntimePluginHandle(MODEL, {
+      provider: DEMO_PROVIDER_ID,
+      modelId: MODEL.id,
+      workspaceDir: "/tmp/workspace",
+      plugin: provider,
+    });
+
+    expect(
+      getAiTransportHost().plugin.resolveTransportTurnState({
+        provider: DEMO_PROVIDER_ID,
+        modelId: MODEL.id,
+        allowRuntimePluginLoad: true,
+        context: {
+          provider: DEMO_PROVIDER_ID,
+          modelId: MODEL.id,
+          model,
+          sessionId: "session-1",
+          turnId: "turn-1",
+          attempt: 1,
+          transport: "stream",
+        },
+      }),
+    ).toEqual({ headers: { "x-demo-turn": "turn-1" } });
+    expect(resolveTransportTurnState).toHaveBeenCalledOnce();
+    expect(resolvePluginProvidersMock).not.toHaveBeenCalled();
+    expect(isPluginProvidersLoadInFlightMock).not.toHaveBeenCalled();
   });
 
   it("does not load runtime plugins for transport turn-state hooks when loading is disabled", () => {

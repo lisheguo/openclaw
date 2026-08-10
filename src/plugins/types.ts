@@ -224,9 +224,7 @@ export type {
   ProviderCacheTtlEligibilityContext,
   ProviderFailoverErrorContext,
   ProviderResolveTransportTurnStateContext,
-  ProviderResolveWebSocketSessionPolicyContext,
   ProviderTransportTurnState,
-  ProviderWebSocketSessionPolicy,
   ProviderWrapStreamFnContext,
 } from "./provider-transport.types.js";
 export type {

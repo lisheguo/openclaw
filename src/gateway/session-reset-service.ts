@@ -1,6 +1,7 @@
 // Gateway session reset/delete service.
 // Rotates transcripts and coordinates lifecycle cleanup across runtimes/hooks.
 import { randomUUID } from "node:crypto";
+import { cleanupSessionResources } from "@openclaw/ai/internal/runtime";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { ErrorCodes, errorShape } from "../../packages/gateway-protocol/src/index.js";
 import { getAcpSessionManager } from "../acp/control-plane/manager.js";
@@ -461,6 +462,15 @@ async function ensureSessionRuntimeCleanup(params: {
   }
   const sessionId = params.sessionId;
   params.assertCurrent?.();
+  const cleanupProviderResources = () => {
+    try {
+      cleanupSessionResources(sessionId);
+    } catch (error) {
+      logVerbose(
+        `sessions cleanup: failed to dispose provider resources for ${sessionId}: ${String(error)}`,
+      );
+    }
+  };
   const retireMcpRuntime = async (retainAcrossReuse: boolean) => {
     await mcpTools.retireSessionMcpRuntime({
       sessionId,
@@ -474,18 +484,15 @@ async function ensureSessionRuntimeCleanup(params: {
       },
     });
   };
-  const ensureMcpRetirementWatcher = () => {
-    if (mcpRunEndWatchers.has(sessionId)) {
-      return;
-    }
-    let cancelWatcher = () => {};
-    const cancelled = new Promise<false>((resolve) => {
-      cancelWatcher = () => resolve(false);
-    });
-    const watcher = getOrCreatePromise(
+  const ensureMcpRetirementWatcher = (): Promise<void> => {
+    return getOrCreatePromise(
       mcpRunEndWatchers,
       sessionId,
       async () => {
+        let cancelWatcher = () => {};
+        const cancelled = new Promise<false>((resolve) => {
+          cancelWatcher = () => resolve(false);
+        });
         mcpRunEndWatcherState.cancellations.set(sessionId, cancelWatcher);
         try {
           while (
@@ -499,9 +506,6 @@ async function ensureSessionRuntimeCleanup(params: {
             if (embeddedAgent.isEmbeddedAgentRunActive(sessionId)) {
               continue;
             }
-            if (mcpRunEndWatchers.get(sessionId) === watcher) {
-              mcpRunEndWatchers.delete(sessionId);
-            }
             const retirement = retireMcpRuntime(false);
             mcpRunEndWatcherState.retirements.add(retirement);
             try {
@@ -509,6 +513,10 @@ async function ensureSessionRuntimeCleanup(params: {
             } finally {
               mcpRunEndWatcherState.retirements.delete(retirement);
             }
+            if (embeddedAgent.isEmbeddedAgentRunActive(sessionId)) {
+              continue;
+            }
+            cleanupProviderResources();
             return;
           }
         } catch (error) {
@@ -526,7 +534,7 @@ async function ensureSessionRuntimeCleanup(params: {
   };
   // Register against the run being stopped before abort or any await allows a
   // later embedded or reply-backed run to replace it in the active registry.
-  ensureMcpRetirementWatcher();
+  const mcpRetirementWatcher = ensureMcpRetirementWatcher();
   embeddedAgent.abortEmbeddedAgentRun(sessionId);
   // Mark cleanup before waiting so the timeout path cannot strand MCP children.
   // Active tool/app leases keep in-flight work alive until their final release.
@@ -540,6 +548,9 @@ async function ensureSessionRuntimeCleanup(params: {
   clearBootstrapSnapshot(params.target.canonicalKey);
   if (ended) {
     params.assertCurrent?.();
+    mcpRunEndWatcherState.cancellations.get(sessionId)?.();
+    await mcpRetirementWatcher;
+    cleanupProviderResources();
     await closeTrackedBrowserTabs();
     return undefined;
   }
@@ -1474,7 +1485,7 @@ export async function performGatewaySessionReset(params: {
       }
       let resetBoundaryAppended = false;
       let resetSkipped = false;
-      const lifecyclePromise = resetSessionEntryLifecycle({
+      const lifecycle = await resetSessionEntryLifecycle({
         archivePreviousTranscript: false,
         agentId: target.agentId,
         resetBoundaryReason: boundaryEntry ? params.reason : undefined,
@@ -1694,8 +1705,6 @@ export async function performGatewaySessionReset(params: {
           });
         },
       });
-      const lifecycle: Awaited<ReturnType<typeof resetSessionEntryLifecycle>> =
-        await lifecyclePromise;
       if (!resetSkipped) {
         const resetSessionKey = target.canonicalKey ?? params.key;
         handleSessionStateSessionReset(resetSessionKey);
