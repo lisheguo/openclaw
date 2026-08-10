@@ -250,23 +250,12 @@ describe("resolveApprovalOverGateway", () => {
 
   it("sends channel custody to an injected canonical runtime", async () => {
     const injectedRequest = vi.fn(async () => ({ applied: true, approval: recordedApproval }));
-    const scopedRequest = vi.fn(async (method: string) => {
-      if (method === "exec.approval.list") {
-        return [
-          {
-            id: "approval-1",
-            request: {
-              command: "printf approval",
-              turnSourceChannel: "imessage",
-              turnSourceAccountId: "personal",
-            },
-          },
-        ];
-      }
-      return { applied: true, approval: recordedApproval };
-    });
+    const scopedRequest = vi.fn();
     const runtime = {
-      request: scopedRequest,
+      request: async <T>(): Promise<T> => {
+        scopedRequest();
+        throw new Error("unexpected scoped approval request");
+      },
       requestRoute: vi.fn(),
       routeCoordinator: { doesAccountHandleRequest: () => true } as never,
       subscribe: vi.fn(),

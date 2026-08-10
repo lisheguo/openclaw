@@ -77,15 +77,13 @@ function hasApprovalForwardTarget(params: {
   );
 }
 
-export type ApprovalRequestChannelRouteClass = "bound-or-explicit" | "unbound";
-
 /** Classifies whether native delivery has named channel-account owners. */
 export function classifyApprovalRequestChannelRoute(params: {
   cfg: OpenClawConfig;
   request: ApprovalRequestLike;
   channel: string;
   defaultAccountId?: string | null;
-}): ApprovalRequestChannelRouteClass {
+}): "bound-or-explicit" | "unbound" {
   const expectedChannel = normalizeOptionalChannel(params.channel);
   if (!expectedChannel) {
     return "unbound";

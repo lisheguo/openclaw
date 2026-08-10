@@ -14,7 +14,6 @@ import {
   resolveApprovalRoutedElsewhereNoticeText,
 } from "./approval-native-route-notice.js";
 import { buildChannelApprovalNativeTargetKey } from "./approval-native-target-key.js";
-import type { ApprovalRequestChannelRouteClass } from "./approval-request-account-binding.js";
 import type { ChannelApprovalKind } from "./approval-types.js";
 import type { ExecApprovalRequest } from "./exec-approvals.js";
 import type { PluginApprovalRequest } from "./plugin-approvals.js";
@@ -25,6 +24,7 @@ type GatewayRequestFn = <T = unknown>(
 ) => Promise<T>;
 
 type ApprovalRequest = ExecApprovalRequest | PluginApprovalRequest;
+type ApprovalRequestChannelRouteClass = "bound-or-explicit" | "unbound";
 
 type ApprovalRouteRuntimeRecord = {
   runtimeId: string;
