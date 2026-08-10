@@ -102,7 +102,7 @@ export const signalSetupWizard: ChannelSetupWizard = {
       return await prepareSignalExistingServerSetup(params, resolvedAccount.transport);
     }
 
-    const { cfg, accountId, credentialValues, runtime, prompter, options } = params;
+    const { cfg, credentialValues, runtime, prompter, options } = params;
     if (!options?.allowSignalInstall) {
       return undefined;
     }
