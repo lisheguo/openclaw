@@ -34,7 +34,7 @@ export type InstallPolicyWarningAcknowledgementResult =
   | { status: "declined" }
   | {
       status: "unavailable";
-      reason: "approval-exhausted";
+      reason: "approval-exhausted" | "warning-not-approved";
     };
 
 /** Overrides that intentionally loosen install safety policy for trusted/operator paths. */
