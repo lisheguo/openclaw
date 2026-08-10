@@ -233,6 +233,7 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
     let sessionCwd = requestedExecNode ? undefined : requestedCwd;
     let sessionSourceRoot: string | undefined;
     let provisionedSessionWorktree = false;
+    let sessionPersisted = false;
     let generatedDisplayName: string | undefined;
     const cleanupProvisionedSessionWorktree = async (reason: string) => {
       if (!sessionWorktree || !provisionedSessionWorktree) {
@@ -573,6 +574,7 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
       afterCreate: async ({ key, agentId, entry, storePath }) => {
         // Session persistence already committed under the guard. Closure after
         // that point may suppress follow-on work, but cannot roll back the session.
+        sessionPersisted = true;
         if (!hasActiveAgentRuntimeAuthority(client, context)) {
           return;
         }
@@ -618,9 +620,11 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
     }).catch(async (error: unknown) => {
       const authorityClosed =
         error instanceof TypeError && !hasActiveAgentRuntimeAuthority(client, context);
-      await cleanupProvisionedSessionWorktree(
-        authorityClosed ? "session-create-authority-closed" : "session-create-failed",
-      );
+      if (!sessionPersisted) {
+        await cleanupProvisionedSessionWorktree(
+          authorityClosed ? "session-create-authority-closed" : "session-create-failed",
+        );
+      }
       if (authorityClosed) {
         respond(
           false,
