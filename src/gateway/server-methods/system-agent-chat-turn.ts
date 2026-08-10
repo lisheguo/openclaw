@@ -7,15 +7,18 @@ import type { SystemAgentChatEngine } from "../../system-agent/chat-engine.js";
 type SystemAgentChatReply = Awaited<ReturnType<SystemAgentChatEngine["handle"]>>;
 type SystemAgentChatEngineInput = Pick<
   SystemAgentChatEngine,
-  "answerWizard" | "handle" | "pollStep"
+  "answerWizard" | "cancelWizard" | "handle" | "pollStep"
 >;
 
 export function getSystemAgentChatInputError(params: SystemAgentChatParams): string | undefined {
-  const inputCount = [params.message, params.wizardAnswer, params.pollStepId].filter(
-    (value) => value !== undefined,
-  ).length;
+  const inputCount = [
+    params.message,
+    params.wizardAnswer,
+    params.wizardCancel,
+    params.pollStepId,
+  ].filter((value) => value !== undefined).length;
   if (inputCount > 1) {
-    return "Send exactly one of message, wizardAnswer, or pollStepId.";
+    return "Send exactly one of message, wizardAnswer, wizardCancel, or pollStepId.";
   }
   if (
     (params.wizardAnswer !== undefined || params.pollStepId !== undefined) &&
@@ -35,6 +38,12 @@ export function getSystemAgentChatInputError(params: SystemAgentChatParams): str
   ) {
     return "A wizard poll cannot include welcome or UI context.";
   }
+  if (params.wizardCancel !== undefined && params.delegation !== undefined) {
+    return "Delegated OpenClaw sessions cannot cancel hosted wizards.";
+  }
+  if (params.wizardCancel !== undefined && params.reset === true) {
+    return "A wizard cancel cannot reset its OpenClaw chat session.";
+  }
   return undefined;
 }
 
@@ -47,6 +56,9 @@ export async function runSystemAgentChatInput(params: {
   }
   if (params.input.wizardAnswer !== undefined) {
     return await params.engine.answerWizard(params.input.wizardAnswer);
+  }
+  if (params.input.wizardCancel !== undefined) {
+    return await params.engine.cancelWizard(params.input.wizardCancel);
   }
   if (params.input.message === undefined) {
     return undefined;

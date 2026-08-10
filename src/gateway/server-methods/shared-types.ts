@@ -1,6 +1,7 @@
 import type {
   SessionApprovalReplay,
   SystemAgentChatQuestion,
+  SystemAgentWizardCancel,
   WizardAnswer,
   WizardStep,
 } from "../../../packages/gateway-protocol/src/index.js";
@@ -156,6 +157,7 @@ type GatewaySystemAgentSession = {
       options?: { uiContext?: { page: string } },
     ) => Promise<GatewaySystemAgentChatReply>;
     answerWizard: (answer: WizardAnswer) => Promise<GatewaySystemAgentChatReply>;
+    cancelWizard: (cancel: SystemAgentWizardCancel) => Promise<GatewaySystemAgentChatReply>;
     pollStep: (stepId: string) => Promise<GatewaySystemAgentChatReply>;
     seedHistory: (turns: readonly SystemAgentHistoryTurn[]) => void;
     historyLength: () => number;

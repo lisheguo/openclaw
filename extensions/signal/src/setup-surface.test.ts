@@ -112,8 +112,12 @@ function linkedCredentials(signalNumber = "+15555550123", originalAccount?: stri
       signalNumber,
       signalLinkedAccount: "true",
       signalLinkCompleted: "true",
-      [signalSetupStateKeys.managedReuseTransport]: expect.any(String),
-      ...(originalAccount ? { [signalSetupStateKeys.managedReuseAccount]: originalAccount } : {}),
+      ...(originalAccount
+        ? {
+            [signalSetupStateKeys.managedReuseAccount]: originalAccount,
+            [signalSetupStateKeys.managedReuseTransport]: expect.any(String),
+          }
+        : {}),
     },
   };
 }
@@ -166,10 +170,8 @@ describe("signalSetupWizard QR linking", () => {
   });
 
   it("carries managed reuse identity through install-disabled prepare and finalize", async () => {
-    const cfg = createConfig("+15555550123");
-
     await configure({
-      cfg,
+      cfg: createConfig("+15555550123"),
       options: {
         allowSignalInstall: false,
         skipConfirm: true,
@@ -264,11 +266,7 @@ describe("signalSetupWizard QR linking", () => {
         accountId: "work",
         prompter: createQrPrompter({ confirmValues: [false, false] }),
       }),
-    ).resolves.toEqual({
-      credentialValues: {
-        [signalSetupStateKeys.managedReuseTransport]: expect.any(String),
-      },
-    });
+    ).resolves.toBeUndefined();
     expect(linkSignalCliAccountMock).not.toHaveBeenCalled();
   });
 
@@ -277,9 +275,7 @@ describe("signalSetupWizard QR linking", () => {
       ok: true,
       accounts: ["+15555550124", "+15555550125"],
     });
-    const queuedPrompter = createQueuedWizardPrompter({
-      selectValues: ["local", "+15555550125"],
-    });
+    const queuedPrompter = createQueuedWizardPrompter({ selectValues: ["local", "+15555550125"] });
 
     await expect(
       prepare({ prompter: { ...createQrPrompter(), select: queuedPrompter.prompter.select } }),
@@ -300,9 +296,7 @@ describe("signalSetupWizard QR linking", () => {
       ok: true,
       accounts: ["+15555550124", "+15555550125"],
     });
-    const queuedPrompter = createQueuedWizardPrompter({
-      selectValues: ["local", "+15555550125"],
-    });
+    const queuedPrompter = createQueuedWizardPrompter({ selectValues: ["local", "+15555550125"] });
     const confirm = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
 
     const result = await configure({
@@ -320,9 +314,7 @@ describe("signalSetupWizard QR linking", () => {
       ok: true,
       accounts: ["+15555550124", "+15555550125"],
     });
-    const queuedPrompter = createQueuedWizardPrompter({
-      selectValues: ["local", "+15555550123"],
-    });
+    const queuedPrompter = createQueuedWizardPrompter({ selectValues: ["local", "+15555550123"] });
 
     await expect(
       prepare({ prompter: { ...createQrPrompter(), select: queuedPrompter.prompter.select } }),
@@ -334,11 +326,7 @@ describe("signalSetupWizard QR linking", () => {
     listSignalCliAccountsMock.mockResolvedValueOnce({ ok: false, error: "store locked" });
     const note = vi.fn<WizardPrompter["note"]>(async () => undefined);
 
-    await expect(prepare({ prompter: { ...createQrPrompter(), note } })).resolves.toEqual({
-      credentialValues: {
-        [signalSetupStateKeys.managedReuseTransport]: expect.any(String),
-      },
-    });
+    await expect(prepare({ prompter: { ...createQrPrompter(), note } })).resolves.toBeUndefined();
     expect(note).toHaveBeenCalledWith("store locked", "Signal account detection");
     expect(linkSignalCliAccountMock).not.toHaveBeenCalled();
   });
@@ -393,11 +381,7 @@ describe("signalSetupWizard QR linking", () => {
   });
 
   it("does not link when setup cannot or should not present a QR", async () => {
-    expect(await prepare({ options: { allowSignalInstall: false } })).toEqual({
-      credentialValues: {
-        [signalSetupStateKeys.managedReuseTransport]: expect.any(String),
-      },
-    });
+    expect(await prepare({ options: { allowSignalInstall: false } })).toBeUndefined();
     expect(
       await prepare({
         cfg: createConfig("+15555550123"),
@@ -411,11 +395,9 @@ describe("signalSetupWizard QR linking", () => {
     });
 
     detectBinaryMock.mockResolvedValue(false);
-    expect(await prepare({ prompter: createQrPrompter({ confirmValues: [false] }) })).toEqual({
-      credentialValues: {
-        [signalSetupStateKeys.managedReuseTransport]: expect.any(String),
-      },
-    });
+    expect(
+      await prepare({ prompter: createQrPrompter({ confirmValues: [false] }) }),
+    ).toBeUndefined();
     expect(listSignalCliAccountsMock).toHaveBeenCalledOnce();
     expect(linkSignalCliAccountMock).not.toHaveBeenCalled();
   });
@@ -471,13 +453,12 @@ describe("signalSetupWizard QR linking", () => {
       credentialValues: {
         [SIGNAL_LINK_COMPLETED_INPUT_KEY]: "true",
         [SIGNAL_LINKED_ACCOUNT_INPUT_KEY]: "true",
-        [signalSetupStateKeys.managedReuseTransport]: expect.any(String),
         signalNumber: "+15555550123",
       },
     });
   });
 
-  it("preserves the configured account when a different QR-linked account is declined", async () => {
+  it("cancels setup when a different QR-linked account is declined", async () => {
     linkSignalCliAccountMock.mockResolvedValueOnce({
       ok: true,
       associatedAccount: "+15555550124",
@@ -485,12 +466,16 @@ describe("signalSetupWizard QR linking", () => {
     const confirmValues = [false, true, false, true];
     const confirm = vi.fn(async () => confirmValues.shift() ?? false);
 
-    const result = await configure({
-      cfg: createConfig("+15555550123"),
-      prompter: { ...createQrPrompter(), confirm },
+    await expect(
+      configure({
+        cfg: createConfig("+15555550123"),
+        prompter: { ...createQrPrompter(), confirm },
+      }),
+    ).rejects.toMatchObject({
+      name: "WizardCancelledError",
+      message:
+        "Signal setup cancelled: +15555550124 was linked in signal-cli, but replacing configured Signal account +15555550123 was declined.",
     });
-
-    expect(result.cfg.channels?.signal?.account).toBe("+15555550123");
     expect(confirm).toHaveBeenCalledWith({
       message: "Use +15555550124 instead of configured Signal account +15555550123?",
       initialValue: false,

@@ -1,6 +1,7 @@
 // OpenClaw chat engine: transport-agnostic conversation over typed operations.
 import type {
   SystemAgentChatQuestion,
+  SystemAgentWizardCancel,
   WizardAnswer,
   WizardStep as ProtocolWizardStep,
 } from "../../packages/gateway-protocol/src/index.js";
@@ -262,7 +263,6 @@ async function runHostedConfigWizard(params: {
   const committedConfig = await writeWizardConfigFile(result.nextConfig, {
     allowConfigSizeDrop: false,
     baseHash: snapshot.hash,
-    migrationBaseConfig: baseConfig,
     ...(params.afterWrite ? { afterWrite: params.afterWrite } : {}),
   });
   await result.afterWrite?.(committedConfig);
@@ -874,6 +874,12 @@ export class SystemAgentChatEngine {
     return await turn;
   }
 
+  async cancelWizard(cancel: SystemAgentWizardCancel): Promise<SystemAgentChatReply> {
+    const turn = this.turnQueue.then(() => this.cancelWizardSerialized(cancel));
+    this.turnQueue = turn.catch(() => undefined);
+    return await turn;
+  }
+
   /** Observe one active wizard step without acknowledging it. */
   async pollStep(stepId: string): Promise<SystemAgentChatReply> {
     this.assertActive();
@@ -1017,6 +1023,27 @@ export class SystemAgentChatEngine {
       this.retainedQrTerminalReply = { stepId: answer.stepId, reply: { ...completedReply } };
     }
     return completedReply;
+  }
+
+  private async cancelWizardSerialized(
+    cancel: SystemAgentWizardCancel,
+  ): Promise<SystemAgentChatReply> {
+    const bridge = this.wizardBridge;
+    const step = bridge?.step;
+    if (!bridge || !step) {
+      throw new SystemAgentWizardAnswerError("No hosted wizard is awaiting cancellation.");
+    }
+    if (cancel.stepId !== step.id) {
+      throw new SystemAgentWizardAnswerError("The hosted wizard cancel targets a stale step.");
+    }
+    if (!bridge.session.cancel()) {
+      throw new SystemAgentWizardAnswerError("The hosted wizard cannot be cancelled right now.");
+    }
+    // Cancellation releases the prompt before dependency-owned cleanup finishes.
+    // Do not publish terminal state while the runner can still mutate setup state.
+    await bridge.session.whenSettled();
+    const text = await this.pumpWizardBridge();
+    return this.completeTurn({ text, action: "none" }, "Cancel");
   }
 
   private completeTurn(reply: SystemAgentChatReply, userHistoryText: string): SystemAgentChatReply {
@@ -1965,9 +1992,17 @@ export class SystemAgentChatEngine {
     }
     // The credential owner has a truthful result, but its runner may still be applying it.
     // Retire the stale QR step and replace its credential deadline with bounded runner ownership.
-    bridge.step = null;
+    if (bridge.step?.id === stepId) {
+      bridge.step = null;
+    }
     bridge.dismissedQrStepId = stepId;
     bridge.qrExpired = false;
+    if (bridge.step) {
+      // A later prompt proves the runner already applied this owner's result. Preserve that
+      // prompt and retire only the completed QR's deadline.
+      this.clearWizardExpiry(bridge);
+      return;
+    }
     this.armWizardRunnerExpiry(bridge, stepId);
   }
 
@@ -2199,7 +2234,9 @@ export class SystemAgentChatEngine {
       return `${label[0]?.toUpperCase() ?? "S"}${label.slice(1)} setup stopped: ${result.error ?? "unknown error"}`;
     }
     bridge.step = result.step ?? null;
-    this.clearWizardExpiry(bridge);
+    if (!bridge.session.hasExternalQrPresentationOwner()) {
+      this.clearWizardExpiry(bridge);
+    }
     if (bridge.step?.qrDataUrl) {
       this.armWizardQrExpiry(bridge);
     }

@@ -1,4 +1,5 @@
 import {
+  GATEWAY_SERVER_CAPS,
   readSystemAgentInferenceUnavailableErrorDetails,
   type SystemAgentChatParams,
   type SystemAgentChatResult,
@@ -6,7 +7,11 @@ import {
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
 import type { ApplicationContext } from "../../app/context.ts";
 import { t } from "../../i18n/index.ts";
-import { canCallGatewayMethod, isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
+import {
+  canCallGatewayMethod,
+  isGatewayCapabilityAdvertised,
+  isGatewayMethodAdvertised,
+} from "../../lib/gateway-methods.ts";
 import { applyCustodianChatNavigation } from "./custodian-navigation.ts";
 import {
   CustodianQrScheduler,
@@ -72,6 +77,7 @@ export class CustodianSessionStore {
   private sessionVariant: CustodianSessionVariant | null = null;
   private sessionId = createCustodianSessionId();
   private requestEpoch = 0;
+  private requestAbort: AbortController | null = null;
   private nextMessageId = 1;
   private retryParams: SystemAgentChatParams | null = null;
   private sessionClient: GatewayBrowserClient | null = null;
@@ -176,6 +182,15 @@ export class CustodianSessionStore {
 
   get setupRequired(): boolean {
     return this.setupIssue !== null;
+  }
+
+  get wizardCancelAvailable(): boolean {
+    return (
+      isGatewayCapabilityAdvertised(
+        this.context?.gateway.snapshot ?? {},
+        GATEWAY_SERVER_CAPS.SYSTEM_AGENT_WIZARD_CANCEL,
+      ) ?? false
+    );
   }
 
   retry(): void {
@@ -286,6 +301,7 @@ export class CustodianSessionStore {
 
   openChannelsFromOnboarding(): void {
     this.channelOnboardingNudgeClosed = true;
+    this.revokeNavigationAuthority();
     this.emit();
     this.context?.navigate("channels");
   }
@@ -354,11 +370,60 @@ export class CustodianSessionStore {
     ).then(settleQrAcknowledgement);
   }
 
+  cancelWizardStep(message: CustodianMessage): void {
+    const step = message.step;
+    const client = this.activeClient;
+    if (
+      !step ||
+      (!this.wizardInputPending && !(this.wizardSettling && step.type === "qr")) ||
+      !client ||
+      !this.chatAvailable ||
+      !this.wizardCancelAvailable ||
+      this.sending ||
+      this.setupRequired
+    ) {
+      this.emit();
+      return;
+    }
+    const sessionContinuity = this.sessionContinuity;
+    const settleQrCancellation =
+      step.type === "qr"
+        ? this.qrScheduler.beginAcknowledgement(
+            client,
+            step.id,
+            () => this.sessionContinuity === sessionContinuity && this.activeClient === client,
+          )
+        : undefined;
+    void this.sendUserTurn(
+      client,
+      { sessionId: this.sessionId, wizardCancel: { stepId: step.id } },
+      t("custodian.cancel"),
+      true,
+      () => settleQrCancellation?.("sent"),
+    ).then(settleQrCancellation);
+  }
+
   exitSetup(): void {
+    // Leaving setup revokes navigation authority from every in-flight reply.
+    // The destination surface separately decides whether to retain or rotate context.
+    this.revokeNavigationAuthority();
     this.context?.navigate("chat");
   }
 
+  private revokeNavigationAuthority(): void {
+    this.qrScheduler.clear();
+    this.messages = scrubCustodianQrSteps(this.messages);
+    this.requestAbort?.abort();
+    this.requestAbort = null;
+    this.requestEpoch += 1;
+    this.sending = false;
+    this.questionReplyUncertain = false;
+    this.retryParams = null;
+    this.error = null;
+  }
+
   openModelSetup(): void {
+    this.revokeNavigationAuthority();
     this.context?.navigate("model-setup");
   }
 
@@ -394,7 +459,7 @@ export class CustodianSessionStore {
   }
 
   private abandonPendingUserTurn(pendingParams: SystemAgentChatParams | null): void {
-    if (pendingParams?.message === undefined) {
+    if (!pendingParams || !hasCustodianUserInput(pendingParams)) {
       return;
     }
     this.retryParams = null;
@@ -608,6 +673,9 @@ export class CustodianSessionStore {
     ) {
       return "rejected";
     }
+    this.requestAbort?.abort();
+    const requestAbort = new AbortController();
+    this.requestAbort = requestAbort;
     const pollStepId = options?.pollStepId;
     const settlingStepId = pollStepId ?? params.wizardAnswer?.stepId;
     const epoch = ++this.requestEpoch;
@@ -628,14 +696,17 @@ export class CustodianSessionStore {
           delivery = "sent";
           options?.onSent?.();
         },
+        signal: requestAbort.signal,
       });
       delivery = "received";
       if (epoch !== this.requestEpoch || client !== this.activeClient) {
         return "sent";
       }
       this.sessionId = result.sessionId;
-      // An authoritative recovery response supersedes a failed QR acknowledgement.
-      this.error = null;
+      if (pollStepId) {
+        // An authoritative QR observation supersedes a failed acknowledgement or prior poll.
+        this.error = null;
+      }
       if (pollStepId && result.step?.type === "qr" && result.step.id === pollStepId) {
         if (
           options.qrPresentationGeneration !== undefined &&
@@ -738,6 +809,9 @@ export class CustodianSessionStore {
       }
       return eventNudgeState.classifyCustodianSendFailure(error, delivery);
     } finally {
+      if (this.requestAbort === requestAbort) {
+        this.requestAbort = null;
+      }
       if (!pollStepId && epoch === this.requestEpoch) {
         this.sending = false;
       }

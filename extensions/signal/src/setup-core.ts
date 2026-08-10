@@ -476,7 +476,6 @@ export function createSignalSetupWizardProxy(loadWizard: () => Promise<ChannelSe
       unconfiguredScore: 0,
     },
     delegatePrepare: true,
-    delegateFinalize: true,
     credentials: [],
     textInputs: [
       createSignalCliPathTextInput(

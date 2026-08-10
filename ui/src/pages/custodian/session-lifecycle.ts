@@ -107,7 +107,11 @@ export function resolveCustodianSessionContinuity(params: {
 }
 
 export function hasCustodianUserInput(params: SystemAgentChatParams): boolean {
-  return params.message !== undefined || params.wizardAnswer !== undefined;
+  return (
+    params.message !== undefined ||
+    params.wizardAnswer !== undefined ||
+    params.wizardCancel !== undefined
+  );
 }
 
 export function resolveCustodianConfiguredInferenceState(

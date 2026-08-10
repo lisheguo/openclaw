@@ -3,8 +3,8 @@ import {
   createSetupTranslator,
   createDetectedBinaryStatus,
   setSetupChannelEnabled,
-  WizardCancelledError,
   type ChannelSetupWizard,
+  WizardCancelledError,
 } from "openclaw/plugin-sdk/setup";
 import { detectBinary } from "openclaw/plugin-sdk/setup-tools";
 import { listSignalAccountIds, resolveSignalAccount, resolveSignalTransport } from "./accounts.js";
@@ -86,12 +86,13 @@ export const signalSetupWizard: ChannelSetupWizard = {
     },
   },
   prepare: async (params) => {
-    const resolvedAccount = resolveSignalAccount({ cfg: params.cfg, accountId: params.accountId });
+    const { cfg, accountId, credentialValues, runtime, prompter, options } = params;
+    const resolvedAccount = resolveSignalAccount({ cfg, accountId });
     const initialMode: SignalSetupMode =
       resolvedAccount.configured && resolvedAccount.transport.kind !== "managed-native"
         ? "existing-server"
         : "local";
-    const mode = await params.prompter.select<SignalSetupMode>({
+    const mode = await prompter.select<SignalSetupMode>({
       message: "How do you want to set up Signal for OpenClaw?",
       initialValue: initialMode,
       options: [
@@ -111,12 +112,9 @@ export const signalSetupWizard: ChannelSetupWizard = {
       return await prepareSignalExistingServerSetup(params, resolvedAccount.transport);
     }
 
-    const { cfg, credentialValues, runtime, prompter, options } = params;
     const switchingToManaged = resolvedAccount.transport.kind !== "managed-native";
     const transport = switchingToManaged
-      ? resolveSignalTransport(
-          prepareSignalManagedNativeTransport({ cfg, accountId: params.accountId }),
-        )
+      ? resolveSignalTransport(prepareSignalManagedNativeTransport({ cfg, accountId }))
       : resolvedAccount.transport;
     if (transport.kind !== "managed-native") {
       throw new Error("Signal setup did not resolve a managed signal-cli transport.");
@@ -124,16 +122,16 @@ export const signalSetupWizard: ChannelSetupWizard = {
     const originalManagedAccount = normalizeSignalAccountInput(resolvedAccount.config.account);
     const preparedCredentialValues: Record<string, string> = switchingToManaged
       ? { [signalSetupStateKeys.transportKind]: "managed-native" }
-      : {
-          [signalSetupStateKeys.managedReuseTransport]: managedSignalTransportIdentity(transport),
-          ...(originalManagedAccount
-            ? {
-                [signalSetupStateKeys.managedReuseAccount]: originalManagedAccount,
-              }
-            : {}),
-        };
+      : originalManagedAccount
+        ? {
+            [signalSetupStateKeys.managedReuseAccount]: originalManagedAccount,
+            [signalSetupStateKeys.managedReuseTransport]: managedSignalTransportIdentity(transport),
+          }
+        : {};
     if (!options?.allowSignalInstall) {
-      return { credentialValues: preparedCredentialValues };
+      return Object.keys(preparedCredentialValues).length > 0
+        ? { credentialValues: preparedCredentialValues }
+        : undefined;
     }
     let currentCliPath =
       (typeof credentialValues.cliPath === "string" ? credentialValues.cliPath : undefined) ??
@@ -284,7 +282,9 @@ export const signalSetupWizard: ChannelSetupWizard = {
           initialValue: false,
         });
         if (!replaceConfiguredAccount) {
-          return { credentialValues: preparedCredentialValues };
+          throw new WizardCancelledError(
+            `Signal setup cancelled: ${linkedAccount} was linked in signal-cli, but replacing configured Signal account ${configuredAccount} was declined.`,
+          );
         }
       }
       preparedCredentialValues.signalNumber = linkedAccount;

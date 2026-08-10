@@ -1,3 +1,4 @@
+import { GATEWAY_SERVER_CAPS } from "@openclaw/gateway-protocol";
 import { vi } from "vitest";
 import type {
   GatewayBrowserClient,
@@ -38,6 +39,7 @@ export function createContext(
   options: {
     agentsList?: ApplicationContext["agents"]["state"]["agentsList"];
     channelsSnapshot?: ChannelsStatusSnapshot | null;
+    gatewayCapabilities?: string[];
     connectionId?: string;
     deviceId?: string;
     deviceToken?: string;
@@ -61,7 +63,12 @@ export function createContext(
         scopes: ["operator.admin"],
         ...(options.deviceToken ? { deviceToken: options.deviceToken } : {}),
       },
-      features: { methods },
+      features: {
+        methods,
+        capabilities: options.gatewayCapabilities ?? [
+          GATEWAY_SERVER_CAPS.SYSTEM_AGENT_WIZARD_CANCEL,
+        ],
+      },
       ...(options.connectionId ? { server: { connId: options.connectionId } } : {}),
       ...(options.processInstanceId
         ? { snapshot: { processInstanceId: options.processInstanceId } }

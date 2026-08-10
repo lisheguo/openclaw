@@ -905,6 +905,10 @@ describe("SystemAgentChatEngine", () => {
       name: "chat command",
       cancel: (engine: SystemAgentChatEngine) => engine.handle("cancel"),
     },
+    {
+      name: "typed direct action",
+      cancel: (engine: SystemAgentChatEngine, stepId: string) => engine.cancelWizard({ stepId }),
+    },
   ])("cancels active QR setup through a $name", async ({ cancel }) => {
     let cleanupStarted = false;
     let releaseCleanup!: () => void;
@@ -1277,6 +1281,37 @@ describe("SystemAgentChatEngine", () => {
     expect(completed).not.toHaveProperty("wizardInputPending");
   });
 
+  it("keeps QR ownership while polling projects a subsequent prompt", async () => {
+    let settleOwner!: () => void;
+    const owner = new Promise<void>((resolve) => {
+      settleOwner = resolve;
+    });
+    const engine = createQrEngine(async (_channel, prompter) => {
+      await prompter.qrCode?.({
+        title: "Link a device",
+        message: "Scan this QR code, then continue.",
+        text: QR_TEXT,
+        dismissed: owner,
+        expiresAtMs: Date.now() + 60_000,
+      });
+      await prompter.text({ message: "Device label" });
+    });
+
+    const prompt = await engine.handle("connect telegram");
+    const qrStepId = expectDefined(prompt.step, "QR step").id;
+    await engine.answerWizard({ stepId: qrStepId });
+
+    const next = await engine.pollStep(qrStepId);
+    expect(next.step).toMatchObject({ type: "text", message: "Device label" });
+    const nextStepId = expectDefined(next.step, "text step").id;
+    expect(engine.hasPendingQrCode()).toBe(true);
+
+    settleOwner();
+    await vi.waitFor(() => expect(engine.hasPendingQrCode()).toBe(false));
+    const completed = await engine.answerWizard({ stepId: nextStepId, value: "Work laptop" });
+    expect(completed.text).toContain("telegram is configured");
+  });
+
   it("accepts the retained QR acknowledgement after owner completion", async () => {
     let settleOwner!: () => void;
     const owner = new Promise<void>((resolve) => {
@@ -1498,7 +1533,6 @@ describe("SystemAgentChatEngine", () => {
       {
         allowConfigSizeDrop: false,
         baseHash: "skills-base-hash",
-        migrationBaseConfig: baseConfig,
       },
     );
     expect(appendAuditEntry).toHaveBeenCalledWith(
@@ -1959,7 +1993,6 @@ describe("SystemAgentChatEngine", () => {
       {
         allowConfigSizeDrop: false,
         baseHash: "gateway-base-hash",
-        migrationBaseConfig: baseConfig,
         afterWrite: {
           mode: "none",
           reason: "Gateway setup defers runtime apply until explicit restart",
@@ -2411,7 +2444,6 @@ describe("SystemAgentChatEngine", () => {
       }),
       expect.objectContaining({
         baseHash: "base-hash",
-        migrationBaseConfig: baseConfig,
       }),
     );
     expect(currentConfig).toEqual(concurrentConfig);
@@ -4150,6 +4182,93 @@ describe("OpenClaw chat wizard step payload", () => {
 
     expect(selected).toBe("beta");
     expect(engine.historySince(0)).toContainEqual({ role: "user", text: "Beta" });
+  });
+
+  it("cancels the current hosted wizard through a typed direct action", async () => {
+    useTempStateDir();
+    const engine = new SystemAgentChatEngine({
+      surface: "gateway",
+      runAgentTurn: async () => null,
+      planWithAssistant: async () => null,
+      deps: { loadOverview: fakeOverviewLoader() },
+      runChannelSetupWizard: async (_channel: string, prompter: WizardPrompter) => {
+        await prompter.text({ message: "Bot token" });
+      },
+    });
+
+    const prompt = await engine.handle("connect telegram");
+    const stepId = expectDefined(prompt.step?.id, "expected an active wizard step");
+    const cancelled = await engine.cancelWizard({ stepId });
+
+    expect(cancelled.text).toContain("cancelled");
+    expect(cancelled.step).toBeUndefined();
+    expect(cancelled.wizardInputPending).toBeUndefined();
+    expect(engine.historySince(0)).toContainEqual({ role: "user", text: "Cancel" });
+  });
+
+  it("cancels the local hosted wizard after its inference binding drifts", async () => {
+    useTempStateDir();
+    const baseConfig = {
+      agents: { defaults: { model: "openai/gpt-5.5" } },
+      models: {
+        providers: {
+          openai: {
+            baseUrl: "https://api.openai.com/v1",
+            apiKey: "test-key",
+            auth: "api-key",
+            models: [],
+          },
+        },
+      },
+    } satisfies OpenClawConfig;
+    const changedConfig = {
+      agents: { defaults: { model: "anthropic/claude-opus-4-8" } },
+    } satisfies OpenClawConfig;
+    const verifiedInference = await createAmbientVerifiedBinding(baseConfig);
+    let currentConfig: OpenClawConfig = baseConfig;
+    const engine = new SystemAgentChatEngine({
+      surface: "gateway",
+      verifiedInference,
+      runAgentTurn: async () => null,
+      planWithAssistant: async () => null,
+      deps: {
+        readConfigFileSnapshot: vi.fn(async () => configSnapshot(currentConfig)) as never,
+        loadOverview: fakeOverviewLoader(),
+      },
+      runChannelSetupWizard: async (_channel: string, prompter: WizardPrompter) => {
+        await prompter.text({ message: "Bot token" });
+      },
+    });
+
+    const prompt = await engine.handle("connect telegram");
+    const stepId = expectDefined(prompt.step?.id, "expected an active wizard step");
+    currentConfig = changedConfig;
+    const cancelled = await engine.cancelWizard({ stepId });
+
+    expect(cancelled.text).toContain("cancelled");
+    expect(cancelled.step).toBeUndefined();
+  });
+
+  it("rejects a stale typed cancel without changing the active step", async () => {
+    useTempStateDir();
+    const engine = new SystemAgentChatEngine({
+      surface: "gateway",
+      runAgentTurn: async () => null,
+      planWithAssistant: async () => null,
+      deps: { loadOverview: fakeOverviewLoader() },
+      runChannelSetupWizard: async (_channel: string, prompter: WizardPrompter) => {
+        await prompter.text({ message: "Bot token" });
+      },
+    });
+
+    const prompt = await engine.handle("connect telegram");
+    const stepId = expectDefined(prompt.step?.id, "expected an active wizard step");
+    await expect(engine.cancelWizard({ stepId: "stale-step" })).rejects.toBeInstanceOf(
+      SystemAgentWizardAnswerError,
+    );
+    const cancelled = await engine.cancelWizard({ stepId });
+
+    expect(cancelled.text).toContain("cancelled");
   });
 
   it("rejects a stale structured answer without changing the active step", async () => {

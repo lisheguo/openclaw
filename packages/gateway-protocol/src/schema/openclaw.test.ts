@@ -39,6 +39,21 @@ describe("OpenClaw chat params protocol", () => {
     ).toBe(false);
   });
 
+  it("accepts a typed wizard cancel and rejects unknown cancel fields", () => {
+    expect(
+      validateSystemAgentChatParams({
+        sessionId: "session-1",
+        wizardCancel: { stepId: "channel" },
+      }),
+    ).toBe(true);
+    expect(
+      validateSystemAgentChatParams({
+        sessionId: "session-1",
+        wizardCancel: { stepId: "channel", reason: "user" },
+      }),
+    ).toBe(false);
+  });
+
   it("accepts a step poll id without adding a synthetic chat message", () => {
     expect(
       validateSystemAgentChatParams({

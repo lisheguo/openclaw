@@ -13,11 +13,8 @@ import {
   type SystemAgentPluginMetadataTestSnapshot,
 } from "../../system-agent/system-agent.test-helpers.js";
 import type { SystemAgentVerifiedInferenceBinding } from "../../system-agent/verified-inference.js";
-import {
-  runExclusiveSystemAgentSetupActivation,
-  systemAgentHandlers,
-  type SystemAgentChatSession,
-} from "./system-agent.js";
+import { runExclusiveSystemAgentSetupActivation } from "./setup-admission.js";
+import { systemAgentHandlers, type SystemAgentChatSession } from "./system-agent.js";
 import type { GatewayRequestContext } from "./types.js";
 
 const setupInferenceMocks = vi.hoisted(() => ({
@@ -200,6 +197,44 @@ describe("openclaw.setup", () => {
     }
   });
 
+  it.each([
+    [
+      "openclaw.setup.auth.start" as const,
+      { sessionId: "busy-auth", authChoice: "github-copilot" },
+    ],
+    ["openclaw.setup.prepare.start" as const, { sessionId: "busy-prepare", authChoice: "ollama" }],
+  ])("rejects %s before creating a wizard session when setup is busy", async (method, params) => {
+    const ownerStarted = createDeferred();
+    const releaseOwner = createDeferred();
+    const owner = runExclusiveSystemAgentSetupActivation(async () => {
+      ownerStarted.resolve();
+      await releaseOwner.promise;
+    });
+    await ownerStarted.promise;
+    const { wizardSessions, context } = makeWizardContext();
+
+    try {
+      const { calls, respond } = makeRespond();
+      await systemAgentHandler(method)({ params, respond, context } as never);
+
+      expect(calls).toEqual([
+        {
+          ok: false,
+          payload: undefined,
+          error: {
+            code: "UNAVAILABLE",
+            message: "OpenClaw setup is already in progress; try again when it finishes.",
+            retryable: true,
+          },
+        },
+      ]);
+      expect(wizardSessions.size).toBe(0);
+    } finally {
+      releaseOwner.resolve();
+      await owner;
+    }
+  });
+
   it("releases the activation slot when the owning task fails", async () => {
     await expect(
       runExclusiveSystemAgentSetupActivation(async () => {
@@ -303,7 +338,6 @@ describe("openclaw.setup", () => {
       allowConfigSizeDrop: false,
       baseSnapshot: expect.objectContaining({ hash: "prepare-base-hash" }),
       baseHash: "prepare-base-hash",
-      migrationBaseConfig: verifiedConfig,
     });
   });
 

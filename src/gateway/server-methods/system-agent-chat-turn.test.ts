@@ -8,12 +8,14 @@ import {
 function makeEngine() {
   const handle = vi.fn();
   const answerWizard = vi.fn();
+  const cancelWizard = vi.fn();
   const pollStep = vi.fn();
   return {
     answerWizard,
+    cancelWizard,
     handle,
     pollStep,
-    engine: { answerWizard, handle, pollStep },
+    engine: { answerWizard, cancelWizard, handle, pollStep },
   };
 }
 
@@ -25,7 +27,7 @@ describe("system-agent chat input", () => {
         message: "5",
         wizardAnswer: { stepId: "channel", value: "twitch" },
       },
-      error: "Send exactly one of message, wizardAnswer, or pollStepId.",
+      error: "Send exactly one of message, wizardAnswer, wizardCancel, or pollStepId.",
     },
     {
       input: {
@@ -45,7 +47,7 @@ describe("system-agent chat input", () => {
     },
     {
       input: { sessionId: "s1", pollStepId: "qr", message: "continue" },
-      error: "Send exactly one of message, wizardAnswer, or pollStepId.",
+      error: "Send exactly one of message, wizardAnswer, wizardCancel, or pollStepId.",
     },
     {
       input: {
@@ -67,6 +69,46 @@ describe("system-agent chat input", () => {
       input: { sessionId: "s1", pollStepId: "qr", context: { page: "channels" } },
       error: "A wizard poll cannot include welcome or UI context.",
     },
+    {
+      input: {
+        sessionId: "s1",
+        message: "cancel",
+        wizardCancel: { stepId: "channel" },
+      },
+      error: "Send exactly one of message, wizardAnswer, wizardCancel, or pollStepId.",
+    },
+    {
+      input: {
+        sessionId: "s1",
+        wizardAnswer: { stepId: "channel", value: "twitch" },
+        wizardCancel: { stepId: "channel" },
+      },
+      error: "Send exactly one of message, wizardAnswer, wizardCancel, or pollStepId.",
+    },
+    {
+      input: {
+        sessionId: "s1",
+        wizardCancel: { stepId: "channel" },
+        pollStepId: "qr",
+      },
+      error: "Send exactly one of message, wizardAnswer, wizardCancel, or pollStepId.",
+    },
+    {
+      input: {
+        sessionId: "s1",
+        wizardCancel: { stepId: "channel" },
+        delegation: { agentId: "main", sessionKey: "agent:main:main" },
+      },
+      error: "Delegated OpenClaw sessions cannot cancel hosted wizards.",
+    },
+    {
+      input: {
+        sessionId: "s1",
+        wizardCancel: { stepId: "channel" },
+        reset: true,
+      },
+      error: "A wizard cancel cannot reset its OpenClaw chat session.",
+    },
   ])("rejects invalid mixed input: $error", ({ input, error }) => {
     expect(getSystemAgentChatInputError(input)).toBe(error);
   });
@@ -86,6 +128,25 @@ describe("system-agent chat input", () => {
     ).resolves.toEqual({ text: "Next step.", action: "none" });
 
     expect(answerWizard).toHaveBeenCalledWith({ stepId: "channel", value: "twitch" });
+    expect(handle).not.toHaveBeenCalled();
+  });
+
+  it("routes a structured wizard cancel through the typed engine seam", async () => {
+    const { engine, answerWizard, cancelWizard, handle } = makeEngine();
+    cancelWizard.mockResolvedValue({ text: "Setup cancelled.", action: "none" });
+
+    await expect(
+      runSystemAgentChatInput({
+        engine,
+        input: {
+          sessionId: "s1",
+          wizardCancel: { stepId: "channel" },
+        },
+      }),
+    ).resolves.toEqual({ text: "Setup cancelled.", action: "none" });
+
+    expect(cancelWizard).toHaveBeenCalledWith({ stepId: "channel" });
+    expect(answerWizard).not.toHaveBeenCalled();
     expect(handle).not.toHaveBeenCalled();
   });
 

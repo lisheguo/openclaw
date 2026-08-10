@@ -21,6 +21,7 @@ import {
   type WizardStep,
 } from "../../wizard/session.js";
 import { formatForLog } from "../ws-log.js";
+import { createAdmittedWizardSession, SETUP_ADMISSION_BUSY_MESSAGE } from "./setup-admission.js";
 import { assertSystemAgentGatewayExecutionActive } from "./system-agent-execution-lifecycle.js";
 import type { GatewayRequestContext, GatewayRequestHandlers, RespondFn } from "./types.js";
 import { assertValidParams } from "./validation.js";
@@ -110,48 +111,55 @@ export const wizardHandlers: GatewayRequestHandlers = {
     if (!assertValidParams(params, validateWizardStartParams, "wizard.start", respond)) {
       return;
     }
-    // Shutdown snapshots wizardSessions only once. This tombstone check and
-    // the map insertion below stay synchronous so a started wizard is captured.
+    // Fail before waiting for setup admission when this Gateway is already retired.
     assertSystemAgentGatewayExecutionActive(context.systemAgentSessions);
-    const running = context.findRunningWizard();
-    if (running) {
-      respond(false, undefined, errorShape(ErrorCodes.UNAVAILABLE, "wizard already running"));
-      return;
-    }
     const sessionId = randomUUID();
     const flow = params.flow ?? "setup";
-    const session =
-      flow === "channels"
-        ? new WizardSession((prompter, _signal, wizardSession) =>
-            runHostedWizard((runtime) =>
-              context.channelWizardRunner(
-                {
-                  channel: readStringValue(params.channel),
-                  onConfigured: (accounts) => wizardSession.setConfiguredAccounts(accounts),
-                  // Durable effects (plugin installs, config commit) must finish
-                  // even if the client cancels mid-write.
-                  beforePersistentEffect: async () => wizardSession.lockCancellation(),
-                },
-                runtime,
-                prompter,
+    const createSession = () => {
+      assertSystemAgentGatewayExecutionActive(context.systemAgentSessions);
+      const session =
+        flow === "channels"
+          ? new WizardSession((prompter, _signal, wizardSession) =>
+              runHostedWizard((runtime) =>
+                context.channelWizardRunner(
+                  {
+                    channel: readStringValue(params.channel),
+                    onConfigured: (accounts) => wizardSession.setConfiguredAccounts(accounts),
+                    // Durable effects (plugin installs, config commit) must finish
+                    // even if the client cancels mid-write.
+                    beforePersistentEffect: async () => wizardSession.lockCancellation(),
+                  },
+                  runtime,
+                  prompter,
+                ),
               ),
-            ),
-          )
-        : new WizardSession((prompter) =>
-            runHostedWizard((runtime) =>
-              context.wizardRunner(
-                {
-                  mode: params.mode,
-                  workspace: readStringValue(params.workspace),
-                  installDaemon: params.installDaemon,
-                },
-                runtime,
-                prompter,
+            )
+          : new WizardSession((prompter) =>
+              runHostedWizard((runtime) =>
+                context.wizardRunner(
+                  {
+                    mode: params.mode,
+                    workspace: readStringValue(params.workspace),
+                    installDaemon: params.installDaemon,
+                  },
+                  runtime,
+                  prompter,
+                ),
               ),
-            ),
-          );
-    retainGatewayWorkUntilSettled(session);
-    context.wizardSessions.set(sessionId, session);
+            );
+      retainGatewayWorkUntilSettled(session);
+      context.wizardSessions.set(sessionId, session);
+      return session;
+    };
+    const session = await createAdmittedWizardSession(createSession, flow === "setup");
+    if (!session) {
+      respond(
+        false,
+        undefined,
+        errorShape(ErrorCodes.UNAVAILABLE, SETUP_ADMISSION_BUSY_MESSAGE, { retryable: true }),
+      );
+      return;
+    }
     const result = await session.next();
     if (result.done) {
       // Completed sessions cannot accept later answers; purge immediately so
