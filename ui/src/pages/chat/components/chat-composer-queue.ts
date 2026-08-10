@@ -14,6 +14,8 @@ type ChatQueueProps = {
   onQueueRetry?: (id: string) => void;
   onQueueSteer?: (id: string) => void;
   onQueueMove?: (id: string, toIndex: number) => void;
+  onQueueEdit?: (id: string) => void;
+  editingId?: string | null;
   onQueueRemove: (id: string) => void;
 };
 
@@ -46,8 +48,11 @@ export function renderChatQueue(props: ChatQueueProps) {
     return nothing;
   }
   // Move positions address the movable rows only, matching what the reorder
-  // owner permutes; rows attached to a run keep their place.
-  const movableIds = visibleQueue.filter(isMovableChatQueueItem).map((item) => item.id);
+  // owner permutes; rows attached to a run keep their place. The row being
+  // edited holds its slot too, so it drops out of the movable set.
+  const movableIds = visibleQueue
+    .filter((item) => isMovableChatQueueItem(item) && item.id !== props.editingId)
+    .map((item) => item.id);
   // Keyed rows so a reorder moves the existing DOM node instead of rewriting
   // it in place; that is what keeps focus on the handle the operator is using.
   return html`
@@ -85,7 +90,17 @@ function renderChatQueueItem(
     !item.localCommandName;
   const moveIndex = movableIds.indexOf(item.id);
   const move = props.onQueueMove;
-  const canMove = Boolean(move) && moveIndex >= 0 && movableIds.length > 1;
+  const editing = props.editingId === item.id;
+  // Queue-level: once any row can move, every row reserves the handle column so
+  // the pill and text stay on one x whatever state a row is in. Row-level: only
+  // a row that may actually move gets a live handle.
+  const showsHandle = Boolean(move) && movableIds.length > 1;
+  const canMove = showsHandle && moveIndex >= 0;
+  // Every row keeps its handle, pencil and discard slots in every state and goes
+  // inert instead of empty while an edit is open, so no column moves mid-flow.
+  const editable =
+    Boolean(props.onQueueEdit) && isMovableChatQueueItem(item) && !item.localCommandName;
+  const canEdit = editable && !props.editingId;
   const text =
     item.text ||
     (item.attachments?.length
@@ -93,7 +108,9 @@ function renderChatQueueItem(
       : "");
   const itemClass = `chat-queue__item${steered ? " chat-queue__item--steered" : ""}${
     failed ? " chat-queue__item--failed" : ""
-  }${reconnecting ? " chat-queue__item--reconnect" : ""}`;
+  }${reconnecting ? " chat-queue__item--reconnect" : ""}${
+    editing ? " chat-queue__item--editing" : ""
+  }`;
   // Row order keeps the actions on the first flex line; the error wraps below
   // them via flex-basis so failed rows grow by one line instead of a card.
   return html`
@@ -130,14 +147,21 @@ function renderChatQueueItem(
             move?.(draggedId, moveIndex);
           }
         : undefined}
+      @dblclick=${canEdit ? () => props.onQueueEdit?.(item.id) : undefined}
     >
-      ${canMove
+      ${showsHandle
         ? html`<button
             class="chat-queue__grip"
             type="button"
-            aria-label=${t("chat.queue.reorderQueuedMessage")}
-            aria-keyshortcuts="ArrowUp ArrowDown"
+            ?disabled=${!canMove}
+            aria-label=${canMove
+              ? t("chat.queue.reorderQueuedMessage")
+              : t("chat.queue.reorderUnavailable")}
+            aria-keyshortcuts=${ifDefined(canMove ? "ArrowUp ArrowDown" : undefined)}
             @keydown=${(event: KeyboardEvent) => {
+              if (!canMove) {
+                return;
+              }
               const delta = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
               if (delta === 0) {
                 return;
@@ -162,13 +186,15 @@ function renderChatQueueItem(
             >${t("chat.queue.states.steering")}</span
           >`
         : nothing}
-      ${stateLabel
-        ? html`<span
-            class="chat-queue__badge"
-            title=${ifDefined(reconnecting ? item.sendError : undefined)}
-            >${stateLabel}</span
-          >`
-        : nothing}
+      ${editing
+        ? html`<span class="chat-queue__badge">${t("chat.queue.states.editing")}</span>`
+        : stateLabel
+          ? html`<span
+              class="chat-queue__badge"
+              title=${ifDefined(reconnecting ? item.sendError : undefined)}
+              >${stateLabel}</span
+            >`
+          : nothing}
       <span class="chat-queue__text" title=${text}>${text}</span>
       <span class="chat-queue__actions">
         ${failed && props.onQueueRetry
@@ -197,6 +223,21 @@ function renderChatQueueItem(
               </button>
             `
           : nothing}
+        ${editable
+          ? html`
+              <openclaw-tooltip .content=${t("chat.queue.editQueuedMessage")}>
+                <button
+                  class="chat-queue__edit"
+                  type="button"
+                  ?disabled=${!canEdit}
+                  aria-label=${t("chat.queue.editQueuedMessage")}
+                  @click=${() => props.onQueueEdit?.(item.id)}
+                >
+                  ${icons.pencil}
+                </button>
+              </openclaw-tooltip>
+            `
+          : nothing}
         ${busy
           ? nothing
           : html`
@@ -204,6 +245,7 @@ function renderChatQueueItem(
                 <button
                   class="chat-queue__remove"
                   type="button"
+                  ?disabled=${editing}
                   aria-label=${t("chat.queue.removeQueuedMessage")}
                   @click=${() => props.onQueueRemove(item.id)}
                 >

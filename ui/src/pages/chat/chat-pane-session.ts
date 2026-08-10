@@ -61,6 +61,7 @@ import {
   resolveStoredChatOutboxScope,
   storedChatOutboxScopeKey,
 } from "./composer-persistence.ts";
+import { cancelQueuedMessageEdit } from "./queued-message-edit.ts";
 import { scheduleChatScroll } from "./scroll.ts";
 
 export abstract class ChatPaneSession extends ChatPaneTaskSuggestions {
@@ -299,6 +300,9 @@ export abstract class ChatPaneSession extends ChatPaneTaskSuggestions {
     // An in-progress title edit belongs to the previous session; committing
     // it against the newly routed row would rename the wrong session.
     this.cancelHeaderRename();
+    // A queued message being edited belongs to the previous session; returning
+    // it to its own queue keeps the row from following the operator elsewhere.
+    cancelQueuedMessageEdit(state);
     const restoredPosition = this.resetOlderMessagesViewport(nextSessionKey);
     const catalogKey = parseCatalogSessionKey(nextSessionKey);
     const previousAgentId = resolveChatAgentId(state);
