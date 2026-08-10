@@ -1823,6 +1823,7 @@ export const en: TranslationMap = {
     more: "More",
     home: "Home",
     pages: "Pages",
+    pinned: "Pinned",
     customize: "Edit pinned items",
     customizeReset: "Reset pinned items",
     workboardGroup: "WorkBoard",
