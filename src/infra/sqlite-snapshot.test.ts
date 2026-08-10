@@ -613,11 +613,10 @@ describe("createVerifiedSqliteSnapshot", () => {
       }
       return handle;
     });
-    // Forward only the path, not lstat options: passing bigint options through
-    // changes which publication-identity call the injected EIO lands on, and on
-    // Windows that surfaces "publication source identity did not match" instead
-    // of the inspection failure under test (broke checks-windows-node-test).
-    vi.spyOn(fs, "lstat").mockImplementation(async (filePath) => {
+    // Preserve fs-safe's bigint overloads or its source fence compares Stats to BigIntStats
+    // and fails before target inspection. The target-open gate keeps the EIO on our later check.
+    vi.spyOn(fs, "lstat").mockImplementation(async (...args) => {
+      const [filePath] = args;
       if (
         publishedTargetOpened &&
         !failedInspection &&
@@ -626,7 +625,7 @@ describe("createVerifiedSqliteSnapshot", () => {
         failedInspection = true;
         throw Object.assign(new Error("target inspection failed"), { code: "EIO" });
       }
-      return await originalLstat(filePath);
+      return await originalLstat(...args);
     });
 
     await expectSnapshotFailureWithoutTarget(
