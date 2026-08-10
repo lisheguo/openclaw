@@ -412,6 +412,9 @@ const config = {
     "src/plugins/memory-state.ts": ["exports", "types"],
     "src/plugins/session-discussion-registry.ts": ["exports"],
     "src/tasks/detached-task-runtime-state.ts": ["exports"],
+    // Focused skill-workshop tests consume these explicit maintenance seams;
+    // production uses them through their owning module.
+    "src/skills/workshop/collection-review.ts": ["exports"],
     // Focused Control UI tests consume these explicit state-machine seams;
     // production uses them through their owning module/controller.
     "ui/src/pages/chat/chat-state-refresh.ts": ["exports"],
