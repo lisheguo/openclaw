@@ -484,6 +484,7 @@ describe("agentCommand", () => {
             runId: "public-ingress-run",
             allowModelOverride: false,
             mainRestartRecoveryAdmitted: true,
+            mainRestartRecoveryAttempt: 1,
             mainRestartRecoveryOwnerLease: {
               claimId: "forged-claim",
               cycleId: "forged-cycle",
