@@ -53,7 +53,7 @@ describe("media store directory recreation", () => {
           return {
             ...actualStore,
             write: async (...args: Parameters<typeof actualStore.write>) => {
-              if (args[0].includes(`${segment}${path.sep}`) && writeAttempts++ === 0) {
+              if (args[0].includes(`${segment}${path.posix.sep}`) && writeAttempts++ === 0) {
                 throw injectedError;
               }
               return await actualStore.write(...args);
