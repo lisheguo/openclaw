@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { escapeRegExp } from "../shared/regexp.js";
 import { requireNodeSqlite } from "./node-sqlite.js";
 import { createPrivateSqliteDirectory } from "./sqlite-private-directory.js";
 
@@ -623,7 +624,15 @@ describe("createVerifiedSqliteSnapshot", () => {
 
     await expectSnapshotFailureWithoutTarget(
       { sourcePath, targetPath },
-      /target inspection failed/u,
+      process.platform === "win32"
+        ? new RegExp(
+            `^SQLite database cannot be snapshotted safely: ${escapeRegExp(sourcePath)}\\. publication source identity did not match$`,
+            "u",
+          )
+        : new RegExp(
+            `^SQLite database cannot be snapshotted safely: ${escapeRegExp(sourcePath)}\\. SQLite snapshot target changed during publication: ${escapeRegExp(targetPath)} \\| exclusive file publication failed during hardlink-verify: target inspection failed \\| helper-failed \\| target inspection failed \\| EIO$`,
+            "u",
+          ),
     );
   });
 
