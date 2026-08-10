@@ -15,6 +15,7 @@ import {
 } from "./placement-dispatch-test-fixtures.js";
 import { createHarness } from "./placement-dispatch-test-harness.js";
 import { createWorkerSessionPlacementStore } from "./placement-store.js";
+import { workerEnvironmentIdForIdempotencyKey } from "./service.js";
 
 describe("worker placement dispatch", () => {
   let root: string;
@@ -30,6 +31,30 @@ describe("worker placement dispatch", () => {
   afterEach(async () => {
     closeOpenClawStateDatabaseForTest();
     await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("reports every durable startup transition without letting reporting break dispatch", async () => {
+    const harness = createHarness(placementStore);
+    const states: string[] = [];
+
+    const placement = await harness.service.dispatch(REQUEST, (current) => {
+      states.push(current.state);
+      throw new Error("reporting failed");
+    });
+
+    expect(placement.state).toBe("active");
+    expect(states).toEqual(["requested", "provisioning", "syncing", "starting", "active"]);
+  });
+
+  it("reports the final durable placement after startup failure teardown", async () => {
+    const harness = createHarness(placementStore, { failAt: "sync" });
+    const states: string[] = [];
+
+    await expect(
+      harness.service.dispatch(REQUEST, (placement) => states.push(placement.state)),
+    ).rejects.toThrow("sync failed");
+
+    expect(states).toEqual(["requested", "provisioning", "syncing", "failed"]);
   });
 
   it("recovers a completed turn's durable pending workspace result before stale-claim teardown", async () => {
@@ -410,6 +435,65 @@ describe("worker placement dispatch", () => {
       expect(failedAt).toBeGreaterThan(harness.log.indexOf("teardown:destroy"));
     }
   });
+
+  it.each(["requested", "provisioning", "syncing"] as const)(
+    "allows explicit redispatch after restart recovery fails an interrupted %s placement",
+    async (interruptedState) => {
+      let interrupted = placementStore.startDispatch(REQUEST);
+      if (interruptedState !== "requested") {
+        interrupted = placementStore.transition({
+          sessionId: REQUEST.sessionId,
+          from: "requested",
+          to: "provisioning",
+          expectedGeneration: interrupted.generation,
+          patch: {
+            environmentId: workerEnvironmentIdForIdempotencyKey(
+              `session-dispatch:${REQUEST.sessionId}:${interrupted.generation}`,
+            ),
+          },
+        });
+      }
+      if (interruptedState === "syncing") {
+        interrupted = placementStore.transition({
+          sessionId: REQUEST.sessionId,
+          from: "provisioning",
+          to: "syncing",
+          expectedGeneration: interrupted.generation,
+          patch: { workerBundleHash: "a".repeat(64) },
+        });
+      }
+      const interruptedEnvironmentId = interrupted.environmentId;
+      const restartedHarness = createHarness(placementStore);
+
+      await restartedHarness.service.reconcile();
+      const failed = restartedHarness.placements.current();
+      expect(failed).toMatchObject({
+        state: "failed",
+        recoveryError: `Worker dispatch interrupted in ${interruptedState}`,
+      });
+      if (failed?.state !== "failed") {
+        throw new Error("restart recovery did not fail the interrupted placement");
+      }
+      const environmentOwned = interruptedState !== "requested";
+      expect(restartedHarness.environments.stopTunnel).toHaveBeenCalledTimes(
+        environmentOwned ? 1 : 0,
+      );
+      expect(restartedHarness.environments.destroy).toHaveBeenCalledTimes(environmentOwned ? 1 : 0);
+      const redispatchHarness = createHarness(placementStore, {
+        environmentGeneration: failed.generation + 1,
+      });
+
+      const active = await redispatchHarness.service.dispatch(REQUEST);
+
+      expect(active).toMatchObject({
+        state: "active",
+        environmentId: redispatchHarness.ready.environmentId,
+      });
+      expect(active.generation).toBeGreaterThan(failed.generation);
+      expect(active.environmentId).not.toBe(interruptedEnvironmentId);
+      expect(redispatchHarness.log).toContain("placement:requested");
+    },
+  );
 
   it("does not fail or tear down a dispatch owned by another invocation", async () => {
     placementStore.startDispatch(REQUEST);

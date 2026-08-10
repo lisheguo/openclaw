@@ -2,6 +2,8 @@ import { expectDefined } from "@openclaw/normalization-core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ErrorCodes } from "../../../packages/gateway-protocol/src/index.js";
 import type { WorkerSessionPlacementRecord } from "../worker-environments/placement-store.js";
+import type { WorkerPlacementDispatchRequest } from "../worker-environments/service-contract.js";
+import { readSessionsMutationVersion } from "./session-change-event.js";
 import type { GatewayRequestContext, RespondFn } from "./types.js";
 
 const mocks = vi.hoisted(() => ({
@@ -23,7 +25,7 @@ vi.mock("../session-utils.js", async () => {
   };
 });
 
-import { sessionsHandlers } from "./sessions.js";
+import { sessionDispatchHandlers } from "./sessions-dispatch.js";
 
 const sessionKey = "agent:main:cloud-test";
 const sessionId = "session-cloud-test";
@@ -47,6 +49,15 @@ function reclaimedPlacementRecord(): WorkerSessionPlacementRecord {
     createdAtMs: 1,
     updatedAtMs: 2,
     stateChangedAtMs: 2,
+  };
+}
+
+function failedPlacementRecord(): WorkerSessionPlacementRecord {
+  return {
+    ...reclaimedPlacementRecord(),
+    state: "failed",
+    recoveryError: "gateway restarted during worker dispatch",
+    turnClaim: null,
   };
 }
 
@@ -91,8 +102,8 @@ function makeContext(overrides: Partial<GatewayRequestContext> = {}): GatewayReq
 async function invoke(context: GatewayRequestContext) {
   const respond = vi.fn() as unknown as RespondFn;
   await expectDefined(
-    sessionsHandlers["sessions.dispatch"],
-    'sessionsHandlers["sessions.dispatch"] test invariant',
+    sessionDispatchHandlers["sessions.dispatch"],
+    'sessionDispatchHandlers["sessions.dispatch"] test invariant',
   )({
     req: { id: "dispatch-request" } as never,
     params: { key: sessionKey, profileId: "test" },
@@ -107,8 +118,8 @@ async function invoke(context: GatewayRequestContext) {
 async function invokeReclaim(context: GatewayRequestContext) {
   const respond = vi.fn() as unknown as RespondFn;
   await expectDefined(
-    sessionsHandlers["sessions.reclaim"],
-    'sessionsHandlers["sessions.reclaim"] test invariant',
+    sessionDispatchHandlers["sessions.reclaim"],
+    'sessionDispatchHandlers["sessions.reclaim"] test invariant',
   )({
     req: { id: "reclaim-request" } as never,
     params: { key: sessionKey },
@@ -292,12 +303,15 @@ describe("sessions.dispatch", () => {
       }),
     );
 
-    expect(dispatch).toHaveBeenCalledWith({
-      sessionId,
-      sessionKey,
-      agentId: "main",
-      profileId: "test",
-    });
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId,
+        sessionKey,
+        agentId: "main",
+        profileId: "test",
+      }),
+      expect.any(Function),
+    );
     expect(respond).toHaveBeenCalledWith(
       true,
       expect.objectContaining({
@@ -308,6 +322,101 @@ describe("sessions.dispatch", () => {
         }),
       }),
       undefined,
+    );
+  });
+
+  it("allows a failed placement to redispatch after its environment is proven gone", async () => {
+    mocks.resolveTarget.mockReturnValue(
+      targetWithEntry({
+        sessionId,
+        worktree: { id: "worktree-1", branch: "openclaw/cloud-test", repoRoot: "/repo" },
+      }),
+    );
+    mocks.findLiveByOwner.mockReturnValue({
+      id: "worktree-1",
+      ownerKind: "session",
+      ownerId: sessionKey,
+    });
+    const dispatch = vi.fn().mockResolvedValue({
+      ...reclaimedPlacementRecord(),
+      state: "active",
+      environmentId: "environment-next",
+      generation: 6,
+      activeOwnerEpoch: 2,
+      recoveryError: null,
+    });
+    const getEnvironment = vi.fn(() => undefined);
+
+    const respond = await invoke(
+      makeContext({
+        workerEnvironmentService: { get: getEnvironment } as never,
+        workerPlacementDispatchService: { dispatch },
+        workerSessionPlacementService: {
+          getMany: () => new Map([[sessionId, failedPlacementRecord()]]),
+        },
+      }),
+    );
+
+    expect(getEnvironment).toHaveBeenCalledWith("environment-previous");
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(respond).toHaveBeenCalledWith(
+      true,
+      expect.objectContaining({ placement: expect.objectContaining({ state: "active" }) }),
+      undefined,
+    );
+  });
+
+  it("rejects failed-placement redispatch while its environment remains live", async () => {
+    mocks.resolveTarget.mockReturnValue(targetWithEntry({ sessionId }));
+    const dispatch = vi.fn();
+
+    const respond = await invoke(
+      makeContext({
+        workerEnvironmentService: {
+          get: vi.fn(() => ({ state: "failed", leaseId: "lease-previous" })),
+        } as never,
+        workerPlacementDispatchService: { dispatch },
+        workerSessionPlacementService: {
+          getMany: () => new Map([[sessionId, failedPlacementRecord()]]),
+        },
+      }),
+    );
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({
+        code: ErrorCodes.INVALID_REQUEST,
+        message:
+          "cloud worker environment must be stopped before redispatch; use Stop cloud worker",
+      }),
+    );
+  });
+
+  it("rejects failed-placement redispatch when environment proof is unavailable", async () => {
+    mocks.resolveTarget.mockReturnValue(targetWithEntry({ sessionId }));
+    const dispatch = vi.fn();
+
+    const respond = await invoke(
+      makeContext({
+        workerPlacementDispatchService: { dispatch },
+        workerSessionPlacementService: {
+          getMany: () => new Map([[sessionId, failedPlacementRecord()]]),
+        },
+      }),
+    );
+
+    expect(failedPlacementRecord().environmentId).not.toBeNull();
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(respond).toHaveBeenCalledWith(
+      false,
+      undefined,
+      expect.objectContaining({
+        code: ErrorCodes.INVALID_REQUEST,
+        message:
+          "cloud worker environment must be stopped before redispatch; use Stop cloud worker",
+      }),
     );
   });
 
@@ -369,7 +478,7 @@ describe("sessions.dispatch", () => {
       ownerKind: "session",
       ownerId: sessionKey,
     });
-    const dispatch = vi.fn().mockResolvedValue({
+    const dispatchedPlacement: WorkerSessionPlacementRecord = {
       sessionId,
       agentId: "main",
       sessionKey,
@@ -387,20 +496,42 @@ describe("sessions.dispatch", () => {
       createdAtMs: 1,
       updatedAtMs: 2,
       stateChangedAtMs: 2,
-    });
-    const respond = await invoke(
-      makeContext({
-        workerPlacementDispatchService: { dispatch },
-        workerSessionPlacementService: { getMany: () => new Map() },
-      }),
+    };
+    const dispatch = vi.fn(
+      async (
+        _request: WorkerPlacementDispatchRequest,
+        onTransition?: (placement: WorkerSessionPlacementRecord) => void,
+      ) => {
+        for (const state of [
+          "requested",
+          "provisioning",
+          "syncing",
+          "starting",
+          "active",
+        ] as const) {
+          onTransition?.({ ...dispatchedPlacement, state } as WorkerSessionPlacementRecord);
+        }
+        return dispatchedPlacement;
+      },
     );
-
-    expect(dispatch).toHaveBeenCalledWith({
-      sessionId,
-      sessionKey,
-      agentId: "main",
-      profileId: "test",
+    const context = makeContext({
+      getSessionEventSubscriberConnIds: () => new Set(),
+      workerPlacementDispatchService: { dispatch },
+      workerSessionPlacementService: { getMany: () => new Map() },
     });
+    const priorMutationVersion = readSessionsMutationVersion(context);
+    const respond = await invoke(context);
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId,
+        sessionKey,
+        agentId: "main",
+        profileId: "test",
+      }),
+      expect.any(Function),
+    );
+    expect(readSessionsMutationVersion(context)).toBe(priorMutationVersion + 5);
     expect(respond).toHaveBeenCalledWith(
       true,
       expect.objectContaining({

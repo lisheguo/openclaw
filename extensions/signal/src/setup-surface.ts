@@ -7,15 +7,27 @@ import {
 } from "openclaw/plugin-sdk/setup";
 import { detectBinary } from "openclaw/plugin-sdk/setup-tools";
 import { listSignalAccountIds, resolveSignalAccount } from "./accounts.js";
-import { signalCompletionNote, signalDmPolicy, signalNumberTextInputs } from "./setup-core.js";
+import { installSignalCli } from "./install-signal-cli.js";
 import {
-  finalizeSignalInteractiveSetup,
-  prepareSignalInteractiveSetup,
+  createSignalCliPathTextInput,
+  SIGNAL_LINKED_ACCOUNT_INPUT_KEY,
+  SIGNAL_LINK_COMPLETED_INPUT_KEY,
+  signalCompletionNote,
+  signalDmPolicy,
+  signalNumberTextInput,
+  normalizeSignalAccountInput,
+  signalSetupStateKeys,
+} from "./setup-core.js";
+import {
+  finalizeSignalExistingServerSetup,
+  prepareSignalExistingServerSetup,
 } from "./setup-interactive.js";
+import { linkSignalCliAccount, listSignalCliAccounts } from "./signal-cli-link.js";
 
 const t = createSetupTranslator();
 
 const channel = "signal" as const;
+type SignalSetupMode = "local" | "existing-server";
 const configuredLabel = t("wizard.channels.statusConfigured");
 const unconfiguredLabel = t("wizard.channels.statusNeedsSetup");
 const managedStatus = createDetectedBinaryStatus({
@@ -64,17 +76,224 @@ export const signalSetupWizard: ChannelSetupWizard = {
       return params.configured ? 1 : 0;
     },
   },
-  introNote: {
-    title: "Signal",
-    lines: [
-      "Signal uses a real Signal account/device, not a bot token.",
-      "A dedicated Signal number is recommended for bot-like operation.",
-    ],
+  prepare: async (params) => {
+    const resolvedAccount = resolveSignalAccount({ cfg: params.cfg, accountId: params.accountId });
+    const initialMode: SignalSetupMode =
+      resolvedAccount.configured && resolvedAccount.transport.kind !== "managed-native"
+        ? "existing-server"
+        : "local";
+    const mode = await params.prompter.select<SignalSetupMode>({
+      message: "How do you want to set up Signal for OpenClaw?",
+      initialValue: initialMode,
+      options: [
+        {
+          value: "local",
+          label: "Use local signal-cli",
+          hint: "Install, reuse, or link a local signal-cli account.",
+        },
+        {
+          value: "existing-server",
+          label: "Connect to an existing Signal server",
+          hint: "Validate an independently operated signal-cli or REST server.",
+        },
+      ],
+    });
+    if (mode === "existing-server") {
+      return await prepareSignalExistingServerSetup(params, resolvedAccount.transport);
+    }
+
+    const { cfg, accountId, credentialValues, runtime, prompter, options } = params;
+    if (!options?.allowSignalInstall) {
+      return undefined;
+    }
+    const transport = resolvedAccount.transport;
+    if (transport.kind !== "managed-native") {
+      return undefined;
+    }
+    let currentCliPath =
+      (typeof credentialValues.cliPath === "string" ? credentialValues.cliPath : undefined) ??
+      (transport.kind === "managed-native" ? transport.cliPath : undefined) ??
+      "signal-cli";
+    let cliDetected = await detectBinary(currentCliPath);
+    const existingCliDetected = cliDetected;
+    const wantsInstall = await prompter.confirm({
+      message: cliDetected ? t("wizard.signal.reinstallPrompt") : t("wizard.signal.installPrompt"),
+      initialValue: !cliDetected,
+    });
+    const preparedCredentialValues: Record<string, string> = {};
+    if (wantsInstall) {
+      await options?.beforePersistentEffect?.();
+      try {
+        const result = await installSignalCli(runtime);
+        if (result.ok && result.cliPath) {
+          currentCliPath = result.cliPath;
+          cliDetected = true;
+          preparedCredentialValues.cliPath = result.cliPath;
+          await prompter.note(`Installed signal-cli at ${result.cliPath}`, "Signal");
+        } else if (!result.ok) {
+          cliDetected = existingCliDetected;
+          await prompter.note(result.error ?? "signal-cli install failed.", "Signal");
+        }
+      } catch (error) {
+        cliDetected = existingCliDetected;
+        await prompter.note(`signal-cli install failed: ${String(error)}`, "Signal");
+      }
+    }
+
+    const presentQrCode = prompter.qrCode;
+    if (!cliDetected || !presentQrCode) {
+      return Object.keys(preparedCredentialValues).length > 0
+        ? { credentialValues: preparedCredentialValues }
+        : undefined;
+    }
+    const configPath = transport.configPath;
+    const configuredAccount = normalizeSignalAccountInput(resolvedAccount.config.account);
+    const existingAccounts = await listSignalCliAccounts({
+      cliPath: currentCliPath,
+      ...(configPath ? { configPath } : {}),
+      ...(options?.abortSignal ? { signal: options.abortSignal } : {}),
+    });
+    if (!existingAccounts.ok) {
+      await prompter.note(existingAccounts.error, "Signal account detection");
+      return Object.keys(preparedCredentialValues).length > 0
+        ? { credentialValues: preparedCredentialValues }
+        : undefined;
+    }
+    const siblingAccounts = new Set(
+      listSignalAccountIds(cfg).flatMap((candidateAccountId) => {
+        const candidate = resolveSignalAccount({ cfg, accountId: candidateAccountId });
+        const account = normalizeSignalAccountInput(candidate.config.account);
+        return candidate.accountId !== resolvedAccount.accountId && account ? [account] : [];
+      }),
+    );
+    const availableAccounts = existingAccounts.accounts.flatMap((account) => {
+      const normalized = normalizeSignalAccountInput(account);
+      return normalized && !siblingAccounts.has(normalized) ? [normalized] : [];
+    });
+    const firstAvailableAccount = availableAccounts[0];
+    if (firstAvailableAccount) {
+      const accountToReuse =
+        configuredAccount && availableAccounts.includes(configuredAccount)
+          ? configuredAccount
+          : availableAccounts.length === 1
+            ? firstAvailableAccount
+            : await prompter.select({
+                message: "Choose the linked Signal account to use",
+                options: availableAccounts.map((account) => ({ value: account, label: account })),
+                initialValue: firstAvailableAccount,
+              });
+      if (!availableAccounts.includes(accountToReuse)) {
+        throw new Error("Selected Signal account is not available in this signal-cli store.");
+      }
+      if (configuredAccount && accountToReuse !== configuredAccount) {
+        const replaceConfiguredAccount = await prompter.confirm({
+          message: `Use ${accountToReuse} instead of configured Signal account ${configuredAccount}?`,
+          initialValue: false,
+        });
+        if (!replaceConfiguredAccount) {
+          return Object.keys(preparedCredentialValues).length > 0
+            ? { credentialValues: preparedCredentialValues }
+            : undefined;
+        }
+      }
+      preparedCredentialValues[SIGNAL_LINK_COMPLETED_INPUT_KEY] = "true";
+      preparedCredentialValues.signalNumber = accountToReuse;
+      preparedCredentialValues[SIGNAL_LINKED_ACCOUNT_INPUT_KEY] = "true";
+      return { credentialValues: preparedCredentialValues };
+    }
+
+    const wantsLink = await prompter.confirm({
+      message: "Link this signal-cli installation to Signal now?",
+      initialValue: true,
+    });
+    if (!wantsLink) {
+      return Object.keys(preparedCredentialValues).length > 0
+        ? { credentialValues: preparedCredentialValues }
+        : undefined;
+    }
+
+    await options?.beforePersistentEffect?.();
+    const linkResult = await linkSignalCliAccount({
+      cliPath: currentCliPath,
+      ...(configPath ? { configPath } : {}),
+      ...(options?.abortSignal ? { signal: options.abortSignal } : {}),
+      onLinkUri: async (uri, completion, expiresAtMs) => {
+        const confirmed = await presentQrCode({
+          title: "Signal account linking",
+          message:
+            "On your phone, open Signal > Settings > Linked devices, scan this code, approve the device, then choose Continue.",
+          text: uri,
+          dismissed: completion,
+          expiresAtMs,
+        });
+        if (!confirmed) {
+          throw new Error("Signal account linking was not confirmed.");
+        }
+        // The child-process owner reports the concrete signal-cli result after this callback
+        // releases. Waiting here prevents Continue from interrupting post-approval registration.
+        await completion;
+      },
+    });
+    if (!linkResult.ok) {
+      await prompter.note(linkResult.error, "Signal account linking");
+      return Object.keys(preparedCredentialValues).length > 0
+        ? { credentialValues: preparedCredentialValues }
+        : undefined;
+    }
+    // A successful signal-cli result means the account is already linked on disk.
+    // Preserve that authoritative result even if cancellation raced its final output.
+    preparedCredentialValues[SIGNAL_LINK_COMPLETED_INPUT_KEY] = "true";
+    const linkedAccount = normalizeSignalAccountInput(linkResult.associatedAccount);
+    if (linkedAccount) {
+      if (siblingAccounts.has(linkedAccount)) {
+        // The device link succeeded, but this setup target must not claim a sibling's identity.
+        // Abort before later setup inputs can create a transport-only target.
+        const error = new Error(
+          `${linkedAccount} is already assigned to another OpenClaw Signal account. Choose a different account or remove the existing assignment, then retry setup.`,
+        );
+        await prompter.note(error.message, "Signal account linking");
+        throw error;
+      }
+      if (configuredAccount && linkedAccount !== configuredAccount) {
+        const replaceConfiguredAccount = await prompter.confirm({
+          message: `Use ${linkedAccount} instead of configured Signal account ${configuredAccount}?`,
+          initialValue: false,
+        });
+        if (!replaceConfiguredAccount) {
+          return { credentialValues: preparedCredentialValues };
+        }
+      }
+      preparedCredentialValues.signalNumber = linkedAccount;
+      preparedCredentialValues[SIGNAL_LINKED_ACCOUNT_INPUT_KEY] = "true";
+    } else {
+      await prompter.note(
+        "signal-cli linked successfully, but OpenClaw could not identify the linked account. Enter its Signal number to finish setup.",
+        "Signal account linking",
+      );
+    }
+    return { credentialValues: preparedCredentialValues };
   },
-  prepare: prepareSignalInteractiveSetup,
+  finalize: async (params) => {
+    const kind = params.credentialValues[signalSetupStateKeys.transportKind];
+    if (kind !== "external-native" && kind !== "container") {
+      return undefined;
+    }
+    return await finalizeSignalExistingServerSetup(params);
+  },
   credentials: [],
-  textInputs: signalNumberTextInputs,
-  finalize: finalizeSignalInteractiveSetup,
+  textInputs: [
+    createSignalCliPathTextInput(async ({ cfg, accountId, credentialValues, currentValue }) => {
+      const preparedKind = credentialValues[signalSetupStateKeys.transportKind];
+      if (preparedKind === "external-native" || preparedKind === "container") {
+        return false;
+      }
+      if (resolveSignalAccount({ cfg, accountId }).transport.kind !== "managed-native") {
+        return false;
+      }
+      return !(await detectBinary(currentValue ?? "signal-cli"));
+    }),
+    signalNumberTextInput,
+  ],
   completionNote: signalCompletionNote,
   dmPolicy: signalDmPolicy,
   disable: (cfg) => setSetupChannelEnabled(cfg, channel, false),

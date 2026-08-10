@@ -66,18 +66,10 @@ function setZalouserDmPolicy(
 ): OpenClawConfig {
   const resolvedAccountId = normalizeAccountId(accountId) ?? DEFAULT_ACCOUNT_ID;
   const resolved = resolveZalouserAccountSync({ cfg, accountId: resolvedAccountId });
-  return setZalouserAccountScopedConfig(
-    cfg,
-    resolvedAccountId,
-    {
-      dmPolicy: policy,
-      ...(policy === "open" ? { allowFrom: addWildcardAllowFrom(resolved.config.allowFrom) } : {}),
-    },
-    {
-      dmPolicy: policy,
-      ...(policy === "open" ? { allowFrom: addWildcardAllowFrom(resolved.config.allowFrom) } : {}),
-    },
-  );
+  return setZalouserAccountScopedConfig(cfg, resolvedAccountId, {
+    dmPolicy: policy,
+    ...(policy === "open" ? { allowFrom: addWildcardAllowFrom(resolved.config.allowFrom) } : {}),
+  });
 }
 
 function setZalouserGroupPolicy(
@@ -345,14 +337,16 @@ export const zalouserSetupWizard: ChannelSetupWizard = {
               qrPath
                 ? t("wizard.zalouser.qrImageSaved", { path: qrPath })
                 : t("wizard.zalouser.qrImageWriteFailed"),
-              t("wizard.zalouser.scanApproveContinue"),
+              ...(qrPath ? [t("wizard.zalouser.scanApproveContinue")] : []),
             ].join("\n"),
             t("wizard.zalouser.qrLoginTitle"),
           );
-          const scanned = await prompter.confirm({
-            message: t("wizard.zalouser.qrScannedPrompt"),
-            initialValue: true,
-          });
+          const scanned = qrPath
+            ? await prompter.confirm({
+                message: t("wizard.zalouser.qrScannedPrompt"),
+                initialValue: true,
+              })
+            : false;
           if (scanned) {
             const waited = await waitForZaloQrLogin({
               profile: account.profile,
@@ -389,17 +383,29 @@ export const zalouserSetupWizard: ChannelSetupWizard = {
           await prompter.note(
             [
               start.message,
-              qrPath ? t("wizard.zalouser.qrImageSaved", { path: qrPath }) : undefined,
-            ]
-              .filter(Boolean)
-              .join("\n"),
+              qrPath
+                ? t("wizard.zalouser.qrImageSaved", { path: qrPath })
+                : t("wizard.zalouser.qrImageWriteFailed"),
+              ...(qrPath ? [t("wizard.zalouser.scanApproveContinue")] : []),
+            ].join("\n"),
             t("wizard.zalouser.qrLoginTitle"),
           );
-          const waited = await waitForZaloQrLogin({ profile: account.profile, timeoutMs: 120_000 });
-          await prompter.note(
-            waited.message,
-            waited.connected ? t("common.done") : t("wizard.zalouser.loginPendingTitle"),
-          );
+          const scanned = qrPath
+            ? await prompter.confirm({
+                message: t("wizard.zalouser.qrScannedPrompt"),
+                initialValue: true,
+              })
+            : false;
+          if (scanned) {
+            const waited = await waitForZaloQrLogin({
+              profile: account.profile,
+              timeoutMs: 120_000,
+            });
+            await prompter.note(
+              waited.message,
+              waited.connected ? t("common.done") : t("wizard.zalouser.loginPendingTitle"),
+            );
+          }
         }
       }
     }

@@ -1,6 +1,7 @@
 // Gateway Protocol schema module defines protocol validation shapes.
 import { Type, type TSchema } from "typebox";
 import { closedObject } from "./closed-object.js";
+import { FailoverReasonSchema } from "./failover-reason.js";
 import { NonEmptyString } from "./primitives.js";
 
 /**
@@ -142,23 +143,6 @@ const CronScheduledToolPolicySchema = Type.Union([
   }),
 ]);
 const CronAnnounceChannelSchema = Type.Union([Type.Literal("last"), NonBlankString]);
-const CronFailoverReasonSchema = Type.Union([
-  Type.Literal("auth"),
-  Type.Literal("auth_permanent"),
-  Type.Literal("format"),
-  Type.Literal("rate_limit"),
-  Type.Literal("overloaded"),
-  Type.Literal("billing"),
-  Type.Literal("server_error"),
-  Type.Literal("timeout"),
-  Type.Literal("context_overflow"),
-  Type.Literal("model_not_found"),
-  Type.Literal("session_expired"),
-  Type.Literal("empty_response"),
-  Type.Literal("no_error_details"),
-  Type.Literal("unclassified"),
-  Type.Literal("unknown"),
-]);
 const CronRunDiagnosticSeveritySchema = Type.Union([
   Type.Literal("info"),
   Type.Literal("warn"),
@@ -429,9 +413,16 @@ const CronFailureNotificationDeliverySchema = closedObject({
   error: Type.Optional(Type.String()),
 });
 
+const CronAutoDisabledSchema = closedObject({
+  reason: Type.Union([Type.Literal("consecutive-failures"), Type.Literal("schedule-errors")]),
+  atMs: Type.Integer({ minimum: 0 }),
+  consecutiveErrors: Type.Integer({ minimum: 1 }),
+});
+
 /** Scheduler-maintained state for the latest run/delivery outcome. */
 export const CronJobStateSchema = closedObject({
   nextRunAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
+  scheduleActivatedAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
   runningAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
   lastRunAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
   lastRunStatus: Type.Optional(CronRunStatusSchema),
@@ -439,9 +430,11 @@ export const CronJobStateSchema = closedObject({
   lastError: Type.Optional(Type.String()),
   lastDiagnostics: Type.Optional(CronRunDiagnosticsSchema),
   lastDiagnosticSummary: Type.Optional(Type.String()),
-  lastErrorReason: Type.Optional(CronFailoverReasonSchema),
+  lastErrorReason: Type.Optional(FailoverReasonSchema),
   lastDurationMs: Type.Optional(Type.Integer({ minimum: 0 })),
   consecutiveErrors: Type.Optional(Type.Integer({ minimum: 0 })),
+  // Report-only scheduler ownership fact; callers cannot patch this field.
+  autoDisabled: Type.Optional(CronAutoDisabledSchema),
   consecutiveSkipped: Type.Optional(Type.Integer({ minimum: 0 })),
   lastDelivered: Type.Optional(Type.Boolean()),
   lastDeliveryStatus: Type.Optional(CronDeliveryStatusSchema),
@@ -484,7 +477,7 @@ const CronJobStatePatchSchema = closedObject({
   lastRunStatus: Type.Optional(CronRunStatusSchema),
   lastStatus: Type.Optional(DeprecatedCronRunStatusSchema),
   lastError: Type.Optional(Type.String()),
-  lastErrorReason: Type.Optional(CronFailoverReasonSchema),
+  lastErrorReason: Type.Optional(FailoverReasonSchema),
   lastDurationMs: Type.Optional(Type.Integer({ minimum: 0 })),
   consecutiveErrors: Type.Optional(Type.Integer({ minimum: 0 })),
   consecutiveSkipped: Type.Optional(Type.Integer({ minimum: 0 })),
@@ -569,6 +562,7 @@ export const CronListParamsSchema = closedObject({
   sortDir: Type.Optional(CronSortDirSchema),
   agentId: Type.Optional(NonEmptyString),
   compact: Type.Optional(Type.Boolean()),
+  includeDeliveryPreviews: Type.Optional(Type.Boolean()),
 });
 
 /** Empty request payload for scheduler status. */
@@ -699,7 +693,7 @@ export const CronRunLogEntrySchema = closedObject({
   action: Type.Literal("finished"),
   status: Type.Optional(CronRunStatusSchema),
   error: Type.Optional(Type.String()),
-  errorReason: Type.Optional(CronFailoverReasonSchema),
+  errorReason: Type.Optional(FailoverReasonSchema),
   summary: Type.Optional(Type.String()),
   diagnostics: Type.Optional(CronRunDiagnosticsSchema),
   delivered: Type.Optional(Type.Boolean()),

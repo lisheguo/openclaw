@@ -6,10 +6,10 @@ import { defineChannelSetupContract } from "openclaw/plugin-sdk/channel-setup";
 import {
   createCliPathTextInput,
   createDelegatedSetupWizardProxy,
+  createDelegatedTextInputShouldPrompt,
   createPatchedAccountSetupAdapter,
   createSetupInputPresenceValidator,
   DEFAULT_ACCOUNT_ID,
-  patchChannelConfigForAccount,
   promptParsedAllowFromForAccount,
   setAccountAllowFromForChannel,
   setSetupChannelEnabled,
@@ -40,14 +40,13 @@ import { normalizeSignalTransportHost, normalizeSignalTransportUrl } from "./tra
 const t = createSetupTranslator();
 
 const channel = "signal" as const;
+export const SIGNAL_LINKED_ACCOUNT_INPUT_KEY = "signalLinkedAccount";
+export const SIGNAL_LINK_COMPLETED_INPUT_KEY = "signalLinkCompleted";
 
 // Prepare emits this transient state before generic text inputs run; finalize consumes it
 // to rebuild and probe the account-owned transport before any transport write.
 export const signalSetupStateKeys = {
   transportKind: "signalTransportKind",
-  cliPath: "signalCliPath",
-  cliConfigPath: "signalCliConfigPath",
-  installRequested: "signalInstallRequested",
   serverUrl: "signalServerUrl",
 } as const;
 
@@ -144,6 +143,7 @@ function parseSignalAllowFromEntries(raw: string): { entries: string[]; error?: 
 }
 
 export function buildSignalSetupPatch(input: SignalSetupInput) {
+  const account = normalizeSignalAccountInput(input.signalNumber);
   const transport = input.httpUrl
     ? {
         // Bare --http-url is classified once by prepareAccountConfigInput. Keep the historical
@@ -160,7 +160,7 @@ export function buildSignalSetupPatch(input: SignalSetupInput) {
         }
       : undefined;
   return {
-    ...(input.signalNumber ? { account: input.signalNumber } : {}),
+    ...(account ? { account } : {}),
     ...(transport ? { transport } : {}),
   };
 }
@@ -306,47 +306,34 @@ export const signalNumberTextInput: ChannelSetupWizardTextInput = {
   validate: ({ value }) =>
     normalizeSignalAccountInput(value) ? undefined : INVALID_SIGNAL_ACCOUNT_ERROR,
   normalizeValue: ({ value }) => normalizeSignalAccountInput(value) ?? value,
+  shouldPrompt: ({ credentialValues }) => {
+    const transportKind = credentialValues[signalSetupStateKeys.transportKind];
+    return (
+      transportKind === "external-native" ||
+      transportKind === "container" ||
+      credentialValues[SIGNAL_LINKED_ACCOUNT_INPUT_KEY] !== "true"
+    );
+  },
+  applyCurrentValue: true,
 };
-
-export const signalNumberTextInputs: ChannelSetupWizardTextInput[] = [
-  {
-    ...signalNumberTextInput,
-    shouldPrompt: ({ credentialValues }) =>
-      credentialValues[signalSetupStateKeys.transportKind] === "container",
-  },
-  {
-    ...signalNumberTextInput,
-    message: "Signal phone number (optional)",
-    required: false,
-    applyEmptyValue: true,
-    shouldPrompt: ({ credentialValues }) =>
-      credentialValues[signalSetupStateKeys.transportKind] === "external-native",
-    validate: ({ value }) =>
-      normalizeOptionalString(value) && !normalizeSignalAccountInput(value)
-        ? INVALID_SIGNAL_ACCOUNT_ERROR
-        : undefined,
-    applySet: ({ cfg, accountId, value }) =>
-      patchChannelConfigForAccount({
-        cfg,
-        channel,
-        accountId,
-        patch: {
-          account: normalizeSignalAccountInput(value) ?? undefined,
-          accountUuid: undefined,
-        },
-      }),
-  },
-];
 
 export const signalCompletionNote = {
   title: t("wizard.signal.nextStepsTitle"),
   lines: [
-    "Signal setup is validated.",
-    "OpenClaw will use this Signal connection when the gateway runs.",
-    `Check it later: ${formatCliCommand("openclaw channels status --probe")}`,
+    t("wizard.signal.nextLinkDevice"),
+    t("wizard.signal.nextScanQr"),
+    `Then run: ${formatCliCommand("openclaw gateway call channels.status --params '{\"probe\":true}'")}`,
     `Docs: ${formatDocsLink("/signal", "signal")}`,
   ],
-};
+  shouldShow: ({ credentialValues }) => {
+    const transportKind = credentialValues[signalSetupStateKeys.transportKind];
+    return (
+      transportKind !== "external-native" &&
+      transportKind !== "container" &&
+      credentialValues[SIGNAL_LINK_COMPLETED_INPUT_KEY] !== "true"
+    );
+  },
+} satisfies NonNullable<ChannelSetupWizard["completionNote"]>;
 
 const signalSetupAdapterBase = createPatchedAccountSetupAdapter<SignalSetupInput>({
   channelKey: channel,
@@ -371,6 +358,9 @@ const signalSetupAdapterBase = createPatchedAccountSetupAdapter<SignalSetupInput
         } catch {
           return "Signal --http-host must be a hostname or IP address.";
         }
+      }
+      if (input.signalNumber !== undefined && !normalizeSignalAccountInput(input.signalNumber)) {
+        return INVALID_SIGNAL_ACCOUNT_ERROR;
       }
       if (
         input.signalTransport === "container" &&
@@ -486,7 +476,15 @@ export function createSignalSetupWizardProxy(loadWizard: () => Promise<ChannelSe
     delegatePrepare: true,
     delegateFinalize: true,
     credentials: [],
-    textInputs: signalNumberTextInputs,
+    textInputs: [
+      createSignalCliPathTextInput(
+        createDelegatedTextInputShouldPrompt({
+          loadWizard,
+          inputKey: "cliPath",
+        }),
+      ),
+      signalNumberTextInput,
+    ],
     completionNote: signalCompletionNote,
     dmPolicy: signalDmPolicy,
     disable: (cfg: OpenClawConfig) => setSetupChannelEnabled(cfg, channel, false),

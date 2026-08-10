@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
 // Zalouser plugin module implements zalo js behavior.
 import { expectDefined } from "openclaw/plugin-sdk/expect-runtime";
+import { sanitizeInlineImageDataUrl } from "openclaw/plugin-sdk/inline-image-data-url-runtime";
 import { extensionForMime } from "openclaw/plugin-sdk/media-mime";
 import {
   asDateTimestampMs,
@@ -101,13 +103,6 @@ type AccountInfoResponse = Awaited<ReturnType<API["fetchAccountInfo"]>>;
 function normalizeProfile(profile?: string | null): string {
   const trimmed = profile?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : "default";
-}
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
 }
 
 function clampTextStyles(
@@ -1288,7 +1283,7 @@ export async function sendZaloTextMessage(
       } catch (error) {
         return {
           ok: false,
-          error: toErrorMessage(error),
+          error: formatErrorMessage(error),
           receipt: createZalouserSendReceipt({ threadId: trimmedThreadId, kind: "unknown" }),
         };
       }
@@ -1373,7 +1368,7 @@ export async function sendZaloReaction(params: {
       { shouldPersist: (result) => result.ok },
     );
   } catch (error) {
-    return { ok: false, error: toErrorMessage(error) };
+    return { ok: false, error: formatErrorMessage(error) };
   }
 }
 
@@ -1451,7 +1446,7 @@ export async function sendZaloLink(
   } catch (error) {
     return {
       ok: false,
-      error: toErrorMessage(error),
+      error: formatErrorMessage(error),
       receipt: createZalouserSendReceipt({ threadId: trimmedThreadId, kind: "card" }),
     };
   }
@@ -1533,10 +1528,17 @@ export async function startZaloQrLogin(params: {
 
           switch (event.type) {
             case LoginQRCallbackEventType.QRCodeGenerated: {
-              const image = event.data.image.replace(/^data:image\/png;base64,/, "");
-              current.qrDataUrl = image.startsWith("data:image")
+              const image = event.data.image.trim();
+              const candidate = image.toLowerCase().startsWith("data:")
                 ? image
                 : `data:image/png;base64,${image}`;
+              const normalized = sanitizeInlineImageDataUrl(candidate);
+              if (!normalized?.startsWith("data:image/png;base64,")) {
+                delete current.qrDataUrl;
+                current.error = "Zalo returned an invalid or non-PNG QR image.";
+                break;
+              }
+              current.qrDataUrl = normalized;
               break;
             }
             case LoginQRCallbackEventType.QRCodeExpired: {
@@ -1593,7 +1595,7 @@ export async function startZaloQrLogin(params: {
       } catch (error) {
         const current = activeQrLogins.get(profile);
         if (current && current.id === login.id) {
-          current.error = toErrorMessage(error);
+          current.error = formatErrorMessage(error);
         }
       }
     })();

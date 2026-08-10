@@ -3,6 +3,7 @@ import type { Static } from "typebox";
 import { Type } from "typebox";
 import { closedObject } from "./closed-object.js";
 import { NonEmptyString } from "./primitives.js";
+import { QrPngDataUrlSchema } from "./qr.js";
 
 /** Runtime state reported for gateway-driven setup wizard sessions. */
 const WizardRunStatusSchema = Type.Union([
@@ -16,6 +17,7 @@ const WizardRunStatusSchema = Type.Union([
 export const WizardStartParamsSchema = closedObject({
   mode: Type.Optional(Type.Union([Type.Literal("local"), Type.Literal("remote")])),
   workspace: Type.Optional(Type.String()),
+  installDaemon: Type.Optional(Type.Boolean()),
   // "setup" (default) runs full onboarding; "channels" runs the guided
   // channel-setup flow (openclaw channels add) over the same step protocol.
   flow: Type.Optional(Type.Union([Type.Literal("setup"), Type.Literal("channels")])),
@@ -24,7 +26,7 @@ export const WizardStartParamsSchema = closedObject({
 });
 
 /** Client answer payload for the current wizard step. */
-const WizardAnswerSchema = closedObject({
+export const WizardAnswerSchema = closedObject({
   stepId: NonEmptyString,
   value: Type.Optional(Type.Unknown()),
 });
@@ -60,28 +62,67 @@ const WizardDeviceCodeSchema = closedObject({
 });
 
 /** UI contract for one wizard step rendered by gateway clients. */
-export const WizardStepSchema = closedObject({
-  id: NonEmptyString,
-  type: Type.Union([
-    Type.Literal("note"),
-    Type.Literal("select"),
-    Type.Literal("text"),
-    Type.Literal("confirm"),
-    Type.Literal("multiselect"),
-    Type.Literal("progress"),
-    Type.Literal("action"),
-  ]),
-  title: Type.Optional(Type.String()),
-  message: Type.Optional(Type.String()),
-  format: Type.Optional(Type.Union([Type.Literal("plain")])),
-  options: Type.Optional(Type.Array(WizardStepOptionSchema)),
-  initialValue: Type.Optional(Type.Unknown()),
-  placeholder: Type.Optional(Type.String()),
-  sensitive: Type.Optional(Type.Boolean()),
-  executor: Type.Optional(Type.Union([Type.Literal("gateway"), Type.Literal("client")])),
-  externalUrl: Type.Optional(Type.String()),
-  deviceCode: Type.Optional(WizardDeviceCodeSchema),
-});
+const WizardStepObjectSchema = Type.Object(
+  {
+    id: NonEmptyString,
+    type: Type.Union([
+      Type.Literal("note"),
+      Type.Literal("select"),
+      Type.Literal("text"),
+      Type.Literal("confirm"),
+      Type.Literal("multiselect"),
+      Type.Literal("progress"),
+      Type.Literal("action"),
+      Type.Literal("qr"),
+    ]),
+    title: Type.Optional(Type.String()),
+    message: Type.Optional(Type.String()),
+    format: Type.Optional(Type.Union([Type.Literal("plain")])),
+    options: Type.Optional(Type.Array(WizardStepOptionSchema)),
+    initialValue: Type.Optional(Type.Unknown()),
+    placeholder: Type.Optional(Type.String()),
+    sensitive: Type.Optional(Type.Boolean()),
+    executor: Type.Optional(Type.Union([Type.Literal("gateway"), Type.Literal("client")])),
+    externalUrl: Type.Optional(Type.String()),
+    deviceCode: Type.Optional(WizardDeviceCodeSchema),
+    /** PNG QR image rendered by clients that negotiated QR support. */
+    qrDataUrl: Type.Optional(QrPngDataUrlSchema),
+    /** Remaining lifetime when the Gateway emits this step. */
+    expiresInMs: Type.Optional(Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
+  },
+  {
+    additionalProperties: false,
+    if: Type.Object({ type: Type.Literal("qr") }),
+    // oxlint-disable-next-line unicorn/no-thenable -- `then` is the JSON Schema conditional keyword.
+    then: Type.Object({
+      qrDataUrl: QrPngDataUrlSchema,
+      expiresInMs: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
+      executor: Type.Literal("client"),
+    }),
+    else: {
+      not: {
+        anyOf: [{ required: ["qrDataUrl"] }, { required: ["expiresInMs"] }],
+      },
+    },
+  },
+);
+
+type WizardStepWire = Static<typeof WizardStepObjectSchema>;
+type WizardStepBase = Omit<WizardStepWire, "type" | "executor" | "qrDataUrl" | "expiresInMs">;
+export type WizardStep = WizardStepBase &
+  (
+    | {
+        type: Exclude<WizardStepWire["type"], "qr">;
+        executor?: "gateway" | "client";
+        qrDataUrl?: never;
+        expiresInMs?: never;
+      }
+    | { type: "qr"; executor: "client"; qrDataUrl: string; expiresInMs: number }
+  );
+
+// Preserve the object schema for native code generation while giving TypeBox's
+// static type the same QR requirements enforced by the JSON Schema conditional.
+export const WizardStepSchema = Type.Unsafe<WizardStep>(WizardStepObjectSchema);
 
 /** Channel/account pair the channels flow actually configured. */
 const WizardConfiguredAccountSchema = closedObject({
@@ -101,6 +142,9 @@ const WizardResultFields = {
   // real outcome rather than the preselection.
   channels: Type.Optional(Type.Array(NonEmptyString)),
   accounts: Type.Optional(Type.Array(WizardConfiguredAccountSchema)),
+  // Exact model prepared by provider-owned setup. Clients must still run the
+  // live activation step before presenting the route as ready.
+  preparedModelRef: Type.Optional(NonEmptyString),
 };
 
 /** Result after advancing a wizard session. */
@@ -121,10 +165,10 @@ export const WizardStatusResultSchema = closedObject({
 // Wire types derive directly from local schema consts so public d.ts graphs never
 // pull in the ProtocolSchemas registry.
 export type WizardStartParams = Static<typeof WizardStartParamsSchema>;
+export type WizardAnswer = Static<typeof WizardAnswerSchema>;
 export type WizardNextParams = Static<typeof WizardNextParamsSchema>;
 export type WizardCancelParams = Static<typeof WizardCancelParamsSchema>;
 export type WizardStatusParams = Static<typeof WizardStatusParamsSchema>;
-export type WizardStep = Static<typeof WizardStepSchema>;
 export type WizardNextResult = Static<typeof WizardNextResultSchema>;
 export type WizardStartResult = Static<typeof WizardStartResultSchema>;
 export type WizardStatusResult = Static<typeof WizardStatusResultSchema>;

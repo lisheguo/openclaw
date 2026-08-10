@@ -1,5 +1,6 @@
 // Slack provider module implements model/runtime integration.
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { type FetchFunction, type WebClientOptions, WebClient } from "@slack/web-api";
 import {
   addAllowlistUserEntriesFromConfigEntry,
   buildAllowlistResolutionSummary,
@@ -33,8 +34,12 @@ import {
   resolveSlackAccountDmPolicy,
 } from "../accounts.js";
 import { isSlackAnyNativeApprovalClientEnabled } from "../approval-native-gates.js";
-import { resolveSlackProxyDispatcher, resolveSlackWebClientOptions } from "../client-options.js";
-import { createSlackStartupAuthClient } from "../client.js";
+import {
+  resolveSlackLookupClientOptions,
+  resolveSlackProxyDispatcher,
+  resolveSlackWebClientOptions,
+} from "../client-options.js";
+import { createSlackStartupAuthClient, createSlackWebClient } from "../client.js";
 import { normalizeSlackWebhookPath, registerSlackHttpHandler } from "../http/index.js";
 import { SLACK_TEXT_LIMIT } from "../limits.js";
 import { resolveSlackChannelAllowlist } from "../resolve-channels.js";
@@ -53,7 +58,7 @@ import {
   resolveOpenProviderRuntimeGroupPolicy,
   warnMissingProviderGroupPolicyFallbackOnce,
 } from "./config.runtime.js";
-import { createSlackMonitorContext } from "./context.js";
+import { createSlackMonitorContext, type SlackMonitorContext } from "./context.js";
 import {
   assertEnterpriseSlackDmPolicy,
   assertEnterpriseSlackPolicyConfig,
@@ -61,18 +66,24 @@ import {
   resolveSlackIdentityHealth,
   resolveSlackInstallationIdentity,
   type SlackAuthTestIdentity,
+  type SlackInstallationIdentity,
 } from "./enterprise-install.js";
 import { registerSlackMonitorEvents } from "./events.js";
 import { createSlackDurableIngress } from "./ingress.js";
 import { createSlackMessageHandler } from "./message-handler.js";
 import { openSlackPresenceCooldownStore } from "./presence-cooldown-store.js";
-import { createSlackPresenceMonitor, hasSlackPresenceEventsEnabled } from "./presence-monitor.js";
+import {
+  createSlackPresenceMonitor,
+  hasSlackPresenceEventsEnabled,
+  SLACK_PRESENCE_REQUEST_TIMEOUT_MS,
+} from "./presence-monitor.js";
 import {
   createSlackBoltApp,
   formatSlackChannelResolved,
   formatSlackUserResolved,
   gracefulStopSlackApp,
   publishSlackConnectedStatus,
+  publishSlackBlockedStatus,
   publishSlackDisconnectedStatus,
   resolveSlackBoltInterop,
   startSlackSocketAndWaitForDisconnect,
@@ -91,6 +102,17 @@ import type { MonitorSlackOpts } from "./types.js";
 
 let slackBoltInterop: SlackBoltResolvedExports | undefined;
 
+function withSlackPresenceLifecycleSignal(
+  fetchImpl: FetchFunction,
+  lifecycleSignal: AbortSignal,
+): FetchFunction {
+  return async (input, init) =>
+    await fetchImpl(input, {
+      ...init,
+      signal: init?.signal ? AbortSignal.any([init.signal, lifecycleSignal]) : lifecycleSignal,
+    });
+}
+
 async function getSlackBoltInterop(): Promise<SlackBoltResolvedExports> {
   if (!slackBoltInterop) {
     const slackBoltModule = await import("@slack/bolt");
@@ -106,6 +128,53 @@ const loadSlackRelaySource = createLazyRuntimeModule(() => import("./relay-sourc
 
 const SLACK_WEBHOOK_MAX_BODY_BYTES = 1024 * 1024;
 const SLACK_WEBHOOK_BODY_TIMEOUT_MS = 30_000;
+
+type SlackRuntimeIdentity = {
+  botUserId: string;
+  botId?: string;
+};
+
+function resolveSlackRuntimeIdentity(params: {
+  identity: "bot" | "user";
+  botUserId?: unknown;
+  botId?: unknown;
+  isEnterpriseInstall?: unknown;
+}): SlackRuntimeIdentity | undefined {
+  if (params.isEnterpriseInstall === true) {
+    return undefined;
+  }
+  // User identity has no bot_id; its human id is both the mention target and self-send dedupe
+  // source. Bot identity stays bot_id-gated so token mismatches fail closed.
+  const botUserId = normalizeOptionalString(params.botUserId);
+  const botId = normalizeOptionalString(params.botId);
+  if (!botUserId || (params.identity === "bot" && !botId)) {
+    return undefined;
+  }
+  return {
+    botUserId,
+    ...(botId ? { botId } : {}),
+  };
+}
+
+function adoptSlackRuntimeIdentity(params: {
+  ctx: SlackMonitorContext;
+  identity: "bot" | "user";
+  botUserId?: unknown;
+  botId?: unknown;
+  isEnterpriseInstall?: unknown;
+}): boolean {
+  if (params.ctx.identityHealth.lifecycle !== "blocked") {
+    return false;
+  }
+  const resolved = resolveSlackRuntimeIdentity(params);
+  if (!resolved) {
+    return false;
+  }
+  params.ctx.botUserId = resolved.botUserId;
+  params.ctx.botId = resolved.botId;
+  params.ctx.identityHealth = { lifecycle: "ready", lastError: null };
+  return true;
+}
 
 function resolveStableSlackUserIdEntry(raw: string): string | undefined {
   const trimmed = raw.trim();
@@ -235,11 +304,6 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
       `Slack Enterprise Grid org account "${account.accountId}" requires direct socket or HTTP delivery; relay mode is unsupported`,
     );
   }
-  if (enterpriseOrgInstall && account.config.execApprovals?.enabled === true) {
-    throw new Error(
-      `Slack Enterprise Grid org account "${account.accountId}" does not support Slack-native exec approvals`,
-    );
-  }
   if (enterpriseOrgInstall) {
     assertEnterpriseSlackPolicyConfig({ config: account.config, accountId: account.accountId });
     assertNoEnterpriseSlackBindings({ cfg, accountId: account.accountId });
@@ -348,6 +412,7 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
     ...(runtime.log ? { onLog: runtime.log } : {}),
     ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
   });
+  const monitorContextRef: { current?: SlackMonitorContext } = {};
   const { app, receiver, socketModeLogger } = createSlackBoltApp({
     interop: await getSlackBoltInterop(),
     slackMode,
@@ -358,6 +423,21 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
     clientOptions: clientOptions as Record<string, unknown>,
     dispatcher: slackDispatcher,
     wrapReceiver: durableIngress.wrapReceiver,
+    onContextIdentity: (identity) => {
+      const current = monitorContextRef.current;
+      if (
+        current &&
+        adoptSlackRuntimeIdentity({
+          ctx: current,
+          identity: account.identity,
+          botUserId: identity.botUserId,
+          botId: identity.botId,
+          isEnterpriseInstall: identity.isEnterpriseInstall,
+        })
+      ) {
+        publishSlackConnectedStatus(opts.setStatus, current.identityHealth);
+      }
+    },
   });
 
   // Pre-set shuttingDown on the SocketModeClient before app.stop() to prevent
@@ -414,10 +494,14 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
   try {
     const auth = await createSlackStartupAuthClient(token, clientOptions).auth.test();
     const authUserId = normalizeOptionalString(auth.user_id) ?? "";
-    botId = normalizeOptionalString((auth as { bot_id?: string }).bot_id) ?? "";
-    // User identity has no bot_id; its authenticated human id is both the mention target and
-    // the self-send dedupe source. Bot identity keeps the bot_id-gated fail-closed behavior.
-    botUserId = account.identity === "user" ? authUserId : botId ? authUserId : "";
+    const resolvedIdentity = resolveSlackRuntimeIdentity({
+      identity: account.identity,
+      botUserId: authUserId,
+      botId: (auth as { bot_id?: string }).bot_id,
+      isEnterpriseInstall: auth.is_enterprise_install,
+    });
+    botUserId = resolvedIdentity?.botUserId ?? "";
+    botId = resolvedIdentity?.botId ?? "";
     authTestIdentity = auth;
     if (account.identity === "bot") {
       authIdentityWarning = formatSlackBotTokenIdentityWarning({
@@ -443,8 +527,8 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
   if (authTestError !== undefined) {
     const identityFailureDetail =
       account.identity === "user"
-        ? "explicit self-mention detection will be disabled until restart with a valid user token"
-        : "explicit bot-mention detection will be disabled until restart with a valid bot token";
+        ? "explicit self-mention detection will be disabled while the user identity is unresolved"
+        : "explicit bot-mention detection will be disabled while the bot identity is unresolved";
     runtime.log?.(
       warn(
         `[${account.accountId}] slack auth.test failed at boot (${authTestError}); ` +
@@ -480,6 +564,7 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
     channelRuntime: opts.channelRuntime,
     botUserId,
     botId,
+    identityHealth,
     teamId,
     apiAppId,
     installationIdentity,
@@ -508,6 +593,30 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
     typingReaction,
     mediaMaxBytes,
   });
+  monitorContextRef.current = ctx;
+
+  const recoverSlackIdentity = async () => {
+    if (ctx.identityHealth.lifecycle !== "blocked") {
+      return;
+    }
+    try {
+      const auth = await createSlackStartupAuthClient(token, clientOptions).auth.test();
+      resolveSlackInstallationIdentity({
+        enterpriseOrgInstall,
+        auth,
+        transportApiAppId: expectedApiAppIdFromAppToken,
+      });
+      adoptSlackRuntimeIdentity({
+        ctx,
+        identity: account.identity,
+        botUserId: auth.user_id,
+        botId: (auth as { bot_id?: string }).bot_id,
+        isEnterpriseInstall: auth.is_enterprise_install,
+      });
+    } catch {
+      // The socket is usable while identity remains degraded; retry on its next start.
+    }
+  };
 
   // Slack's socket-mode client keeps ping/pong health private and closes on
   // missed pongs. App events are useful status activity, but not transport proof.
@@ -521,17 +630,34 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
     account: slackCfg.presenceEvents,
     channels: slackCfg.channels,
   });
-  const presenceMonitor =
+  const presenceRequestAbort =
     installationIdentity.kind !== "enterprise" && presenceEventsEnabled
-      ? createSlackPresenceMonitor({
-          accountId: account.accountId,
-          accountConfig: slackCfg.presenceEvents,
-          client: app.client.users,
-          cooldownStore: openSlackPresenceCooldownStore(),
-          log: runtime.log,
-          error: runtime.error,
-        })
+      ? new AbortController()
       : undefined;
+  const presenceClient =
+    presenceRequestAbort === undefined
+      ? undefined
+      : (() => {
+          const options = resolveSlackLookupClientOptions(
+            { ...clientOptions, timeout: SLACK_PRESENCE_REQUEST_TIMEOUT_MS },
+            slackDispatcher,
+          );
+          options.fetch = withSlackPresenceLifecycleSignal(
+            options.fetch ?? globalThis.fetch,
+            presenceRequestAbort.signal,
+          );
+          return new WebClient(token, options).users;
+        })();
+  const presenceMonitor = presenceClient
+    ? createSlackPresenceMonitor({
+        accountId: account.accountId,
+        accountConfig: slackCfg.presenceEvents,
+        client: presenceClient,
+        cooldownStore: openSlackPresenceCooldownStore(),
+        log: runtime.log,
+        error: runtime.error,
+      })
+    : undefined;
   if (installationIdentity.kind === "enterprise" && presenceEventsEnabled) {
     runtime.log?.(warn("slack presence events are unavailable for Enterprise Grid org installs"));
   }
@@ -542,12 +668,17 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
     onPrepared: presenceMonitor?.observe,
   });
   if (
-    installationIdentity.kind !== "enterprise" &&
     isSlackAnyNativeApprovalClientEnabled({
       cfg,
       accountId: account.accountId,
     })
   ) {
+    const resolveClient = createSlackApprovalClientResolver({
+      appClient: app.client,
+      token,
+      clientOptions,
+      installationIdentity,
+    });
     registerChannelRuntimeContext({
       channelRuntime: opts.channelRuntime,
       channelId: "slack",
@@ -556,16 +687,22 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
       context: {
         app,
         config: slackCfg.execApprovals ?? {},
+        resolveClient,
+        ...(installationIdentity.kind === "enterprise"
+          ? {
+              enterprise: {
+                apiAppId: installationIdentity.apiAppId,
+                enterpriseId: installationIdentity.enterpriseId,
+              },
+            }
+          : {}),
       },
       abortSignal: opts.abortSignal,
     });
   }
 
   // Resolve command registration first so App Home never advertises an inactive single command.
-  const commandRegistration =
-    installationIdentity.kind === "enterprise"
-      ? ({ mode: "disabled" } as const)
-      : await registerSlackMonitorSlashCommands({ ctx, account, trackEvent });
+  const commandRegistration = await registerSlackMonitorSlashCommands({ ctx, account, trackEvent });
   const appHomeSlashCommandName =
     commandRegistration.mode === "single" ? commandRegistration.name : undefined;
   registerSlackMonitorEvents({
@@ -575,17 +712,6 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
     appHomeSlashCommandName,
     trackEvent,
   });
-  durableIngress.start();
-  presenceMonitor?.start();
-  if (slackMode === "http" && slackHttpHandler) {
-    unregisterHttpHandler = registerSlackHttpHandler({
-      path: slackWebhookPath,
-      handler: slackHttpHandler,
-      log: runtime.log,
-      accountId: account.accountId,
-    });
-  }
-
   if (resolveToken && installationIdentity.kind !== "enterprise") {
     void (async () => {
       if (opts.abortSignal?.aborted) {
@@ -727,6 +853,18 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
   opts.abortSignal?.addEventListener("abort", stopOnAbort, { once: true });
 
   try {
+    durableIngress.start();
+    presenceMonitor?.start();
+    if (slackMode === "http" && slackHttpHandler) {
+      unregisterHttpHandler = registerSlackHttpHandler({
+        path: slackWebhookPath,
+        handler: slackHttpHandler,
+        log: runtime.log,
+        accountId: account.accountId,
+      });
+      publishSlackConnectedStatus(opts.setStatus, ctx.identityHealth);
+    }
+
     if (slackMode === "socket") {
       let reconnectAttempts = 0;
       let hasLoggedSocketConnected = false;
@@ -735,13 +873,14 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
           const disconnect = await startSlackSocketAndWaitForDisconnect({
             app,
             abortSignal: opts.abortSignal,
-            onStarted: () => {
+            onStarted: async () => {
               reconnectAttempts = 0;
-              publishSlackConnectedStatus(opts.setStatus, identityHealth);
+              await recoverSlackIdentity();
+              publishSlackConnectedStatus(opts.setStatus, ctx.identityHealth);
               if (!hasLoggedSocketConnected) {
                 hasLoggedSocketConnected = true;
                 runtime.log?.(
-                  identityHealth.healthState === "degraded"
+                  ctx.identityHealth.lifecycle === "blocked"
                     ? "slack socket mode connected (degraded identity)"
                     : "slack socket mode connected",
                 );
@@ -758,6 +897,7 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
 
           // Permanent account and credential failures need operator action.
           if (disconnect.error && isNonRecoverableSlackAuthError(disconnect.error)) {
+            publishSlackBlockedStatus(opts.setStatus, disconnect.error);
             runtime.error?.(
               `slack socket mode disconnected due to non-recoverable auth error — skipping channel (${formatUnknownError(disconnect.error)})`,
             );
@@ -786,11 +926,13 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
           }
         } catch (err) {
           if (isNonRecoverableSlackAuthError(err)) {
+            publishSlackBlockedStatus(opts.setStatus, err);
             runtime.error?.(
               `slack socket mode failed to start due to non-recoverable auth error — skipping channel (${formatUnknownError(err)})`,
             );
             throw err;
           }
+          publishSlackDisconnectedStatus(opts.setStatus, err);
           reconnectAttempts += 1;
           const delayMs = computeBackoff(SLACK_SOCKET_RECONNECT_POLICY, reconnectAttempts);
           runtime.error?.(
@@ -832,6 +974,7 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
         acceptRelayEvent: durableIngress.acceptRelayEvent,
         runtime,
         abortSignal: opts.abortSignal,
+        identityHealth: ctx.identityHealth,
         setStatus: opts.setStatus,
         setIdentity: (identity) => setSlackDefaultSendIdentity(account.accountId, identity),
       });
@@ -846,6 +989,7 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
       }
     }
   } finally {
+    presenceRequestAbort?.abort();
     await presenceMonitor?.stop();
     if (slackMode === "relay") {
       setSlackDefaultSendIdentity(account.accountId, undefined);
@@ -857,6 +1001,34 @@ export async function monitorSlackProvider(opts: MonitorSlackOpts = {}) {
     await gracefulStop();
     await slackDispatcher?.close();
   }
+}
+
+function createSlackApprovalClientResolver(params: {
+  appClient: WebClient;
+  token: string;
+  clientOptions: WebClientOptions;
+  installationIdentity: SlackInstallationIdentity;
+}): (teamId?: string) => WebClient {
+  if (params.installationIdentity.kind !== "enterprise") {
+    return () => params.appClient;
+  }
+  const clients = new Map<string, WebClient>();
+  return (rawTeamId?: string) => {
+    const teamId = rawTeamId?.trim().toUpperCase();
+    if (!teamId || !/^T[A-Z0-9]+$/.test(teamId)) {
+      throw new Error("Slack Enterprise Grid approval delivery requires a valid teamId");
+    }
+    const cached = clients.get(teamId);
+    if (cached) {
+      return cached;
+    }
+    const client = createSlackWebClient(params.token, {
+      ...params.clientOptions,
+      teamId,
+    });
+    clients.set(teamId, client);
+    return client;
+  };
 }
 
 export const resolveSlackRuntimeGroupPolicy = resolveOpenProviderRuntimeGroupPolicy;

@@ -15,12 +15,14 @@ const {
   attachGatewayWsMessageHandlerMock,
   attachWorkerWsMessageHandlerMock,
   broadcastPresenceSnapshotMock,
+  cleanupTalkConnectionMock,
   touchPresenceMock,
   upsertPresenceMock,
 } = vi.hoisted(() => ({
   attachGatewayWsMessageHandlerMock: vi.fn(),
   attachWorkerWsMessageHandlerMock: vi.fn((_params: unknown) => vi.fn()),
   broadcastPresenceSnapshotMock: vi.fn(),
+  cleanupTalkConnectionMock: vi.fn(),
   touchPresenceMock: vi.fn(),
   upsertPresenceMock: vi.fn(),
 }));
@@ -37,6 +39,9 @@ vi.mock("../../infra/system-presence.js", () => ({
 }));
 vi.mock("./presence-events.js", () => ({
   broadcastPresenceSnapshot: broadcastPresenceSnapshotMock,
+}));
+vi.mock("../talk-session-registry.js", () => ({
+  cleanupTalkConnection: cleanupTalkConnectionMock,
 }));
 
 import { attachGatewayWsConnectionHandler } from "./ws-connection.js";
@@ -91,6 +96,7 @@ describe("attachGatewayWsConnectionHandler", () => {
     attachGatewayWsMessageHandlerMock.mockReset();
     attachWorkerWsMessageHandlerMock.mockClear();
     broadcastPresenceSnapshotMock.mockReset();
+    cleanupTalkConnectionMock.mockReset();
     touchPresenceMock.mockReset();
     upsertPresenceMock.mockReset();
   });
@@ -228,6 +234,84 @@ describe("attachGatewayWsConnectionHandler", () => {
 
     expect(registered).toBe(false);
     expect(clients.size).toBe(0);
+  });
+
+  it("allows only one authenticated client registration per socket", async () => {
+    vi.useFakeTimers();
+    const clients = new Set();
+    const socket = createGatewayWsTestSocket({ ping: true });
+    const { passed } = await connectTestWs({ clients, socket });
+    const handlerParams = passed as {
+      setClient: (client: unknown) => boolean;
+    };
+    const firstClient = {
+      socket,
+      connect: { client: { id: "openclaw-control-ui", mode: "webchat" } },
+      connId: "first-client",
+      usesSharedGatewayAuth: false,
+    };
+    const racedClient = {
+      ...firstClient,
+      connId: "raced-client",
+    };
+
+    expect(handlerParams.setClient(firstClient)).toBe(true);
+    expect(handlerParams.setClient(racedClient)).toBe(false);
+    expect(clients).toEqual(new Set([firstClient]));
+
+    vi.advanceTimersByTime(25_000);
+    expect(socket.ping).toHaveBeenCalledOnce();
+
+    socket.emit("close", 1000, Buffer.from("done"));
+    expect(clients.size).toBe(0);
+    vi.advanceTimersByTime(25_000);
+    expect(socket.ping).toHaveBeenCalledOnce();
+  });
+
+  it("continues connection cleanup when a connection-owned session fails to dispose", async () => {
+    const requestContext = createGatewayWsTestRequestContext();
+    const { logWsControl, passed, socket } = await connectTestWs({
+      options: { buildRequestContext: () => requestContext as never },
+    });
+    const handlerParams = passed as {
+      connId: string;
+      setClient: (client: unknown) => boolean;
+    };
+    const dispose = vi.fn(async () => {
+      throw new Error("dispose failed");
+    });
+    requestContext.systemAgentSessions.set("owned-session", {
+      engine: {
+        getPersistentApplySettlement: () => null,
+        dispose,
+      },
+      lastUsedAt: 1,
+      ownerKey: `connection:${handlerParams.connId}`,
+      supportsQrCode: true,
+    } as never);
+    expect(
+      handlerParams.setClient({
+        socket,
+        connect: { client: { id: "openclaw-control-ui", mode: "webchat" } },
+        connId: handlerParams.connId,
+        usesSharedGatewayAuth: false,
+      }),
+    ).toBe(true);
+
+    socket.emit("close", 1000, Buffer.from("done"));
+
+    expect(cleanupTalkConnectionMock).toHaveBeenCalledOnce();
+    expect(cleanupTalkConnectionMock).toHaveBeenCalledWith(
+      handlerParams.connId,
+      expect.objectContaining({ warn: expect.any(Function) }),
+    );
+    await vi.waitFor(() => {
+      expect(requestContext.systemAgentSessions.has("owned-session")).toBe(false);
+      expect(dispose).toHaveBeenCalledOnce();
+      expect(logWsControl.warn).toHaveBeenCalledWith(
+        expect.stringContaining("failed to dispose connection-owned system-agent sessions"),
+      );
+    });
   });
 
   it("continues protocol pings after pong and stops when the connection closes", async () => {

@@ -376,33 +376,13 @@ describe("signalAccountCheck", () => {
         "This signal-cli server is bound to one account and does not expose which account it uses. Start it without --account so OpenClaw can verify the selected account, or use OpenClaw-managed local setup.",
     });
   });
-
-  it("accepts a bound daemon spawned with the selected account", async () => {
-    const baseUrl = await withSignalServer((_req, res) => {
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          error: { code: -32601, message: "Method not implemented" },
-          id: "test-id",
-        }),
-      );
-    });
-
-    await expect(
-      signalAccountCheck(baseUrl, 10_000, "+15555550124", "spawned-bound-account"),
-    ).resolves.toEqual({
-      ok: true,
-      status: 200,
-      error: null,
-    });
-  });
 });
 
 describe("streamSignalEvents", () => {
   it("streams events through node http instead of fetch", async () => {
     type StreamEvent = Parameters<Parameters<typeof streamSignalEvents>[0]["onEvent"]>[0];
     const events: StreamEvent[] = [];
+    const onStreamOpen = vi.fn();
     const baseUrl = await withSignalServer((req, res) => {
       expect(req.url).toBe("/api/v1/events?account=%2B15555550123");
       expect(req.headers.accept).toBe("text/event-stream");
@@ -413,9 +393,11 @@ describe("streamSignalEvents", () => {
     await streamSignalEvents({
       baseUrl,
       account: "+15555550123",
+      onStreamOpen,
       onEvent: (event) => events.push(event),
     });
 
+    expect(onStreamOpen).toHaveBeenCalledOnce();
     expect(events).toEqual([{ id: "42", event: "message", data: '{"group":true}' }]);
   });
 

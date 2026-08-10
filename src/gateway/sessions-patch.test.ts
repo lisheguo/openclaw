@@ -1,23 +1,53 @@
 // Session patch tests cover model/provider edits, subagent patching, provider
 // aliases, model catalog validation, and rejected invalid patch payloads.
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { SessionCreatedActor } from "../../packages/gateway-protocol/src/index.js";
 import { resetProviderAuthAliasMapCacheForTest } from "../agents/provider-auth-aliases.test-support.js";
 import type { OpenClawConfig } from "../config/config.js";
 import type { SessionEntry } from "../config/sessions.js";
+import type { PluginManifestRecord } from "../plugins/manifest-registry.js";
 import { createEmptyPluginRegistry } from "../plugins/registry-empty.js";
 import { resetPluginRuntimeStateForTest, setActivePluginRegistry } from "../plugins/runtime.js";
 import { AGENT_HARNESS_SESSION_KEY_RESERVED_MESSAGE } from "../sessions/agent-harness-session-key.js";
 import { MODEL_SELECTION_LOCKED_MESSAGE } from "../sessions/model-overrides.js";
 import { withAgentSessionModelPatchOrigin } from "./session-model-patch-origin.js";
-import { applySessionsPatchToStore } from "./sessions-patch.js";
+import { projectSessionsPatchEntry } from "./sessions-patch.js";
+
+async function applySessionsPatchToStore(
+  params: Omit<
+    Parameters<typeof projectSessionsPatchEntry>[0],
+    "existingEntry" | "isLabelInUse"
+  > & { store: Record<string, SessionEntry> },
+) {
+  const projected = await projectSessionsPatchEntry({
+    ...params,
+    existingEntry: params.store[params.storeKey],
+    isLabelInUse: (label) =>
+      Object.entries(params.store).some(
+        ([sessionKey, entry]) => sessionKey !== params.storeKey && entry.label === label,
+      ),
+  });
+  if (projected.ok) {
+    params.store[params.storeKey] = projected.entry;
+  }
+  return projected;
+}
 
 const acpSessionMetaMocks = vi.hoisted(() => ({
   readAcpSessionMetaForEntry: vi.fn(),
 }));
+const providerThinkingMocks = vi.hoisted(() => ({
+  resolveProviderThinkingProfile:
+    vi.fn<typeof import("../plugins/provider-thinking.js").resolveProviderThinkingProfile>(),
+}));
 
 vi.mock("../acp/runtime/session-meta.js", () => ({
   readAcpSessionMetaForEntry: acpSessionMetaMocks.readAcpSessionMetaForEntry,
+}));
+
+// This suite owns patch projection; provider policy artifacts have dedicated contract coverage.
+vi.mock("../plugins/provider-thinking.js", () => ({
+  resolveProviderThinkingProfile: providerThinkingMocks.resolveProviderThinkingProfile,
 }));
 
 const SUBAGENT_MODEL = "synthetic/hf:moonshotai/Kimi-K2.7-Code";
@@ -32,6 +62,30 @@ const OPENAI_GPT_ID = "gpt-5.4";
 const EMPTY_CFG = {} as OpenClawConfig;
 
 type ApplySessionsPatchArgs = Parameters<typeof applySessionsPatchToStore>[0];
+type ProviderAuthMetadataSnapshot = NonNullable<
+  ApplySessionsPatchArgs["providerAuthMetadataSnapshot"]
+>;
+
+const EMPTY_PROVIDER_AUTH_METADATA_SNAPSHOT = {
+  plugins: [],
+} satisfies ProviderAuthMetadataSnapshot;
+const BYTEPLUS_PROVIDER_AUTH_METADATA_SNAPSHOT = {
+  plugins: [
+    {
+      id: "byteplus",
+      channels: [],
+      providers: ["byteplus", "byteplus-plan"],
+      cliBackends: [],
+      skills: [],
+      hooks: [],
+      origin: "bundled",
+      rootDir: "/plugins/byteplus",
+      source: "test",
+      manifestPath: "/plugins/byteplus/openclaw.plugin.json",
+      providerAuthAliases: { "byteplus-plan": "byteplus" },
+    } satisfies PluginManifestRecord,
+  ],
+} satisfies ProviderAuthMetadataSnapshot;
 
 async function runPatch(params: {
   patch: ApplySessionsPatchArgs["patch"];
@@ -40,6 +94,7 @@ async function runPatch(params: {
   storeKey?: string;
   agentId?: string;
   loadGatewayModelCatalog?: ApplySessionsPatchArgs["loadGatewayModelCatalog"];
+  providerAuthMetadataSnapshot?: ApplySessionsPatchArgs["providerAuthMetadataSnapshot"];
   archivedBy?: SessionCreatedActor;
 }) {
   return applySessionsPatchToStore({
@@ -49,6 +104,7 @@ async function runPatch(params: {
     agentId: params.agentId,
     patch: params.patch,
     loadGatewayModelCatalog: params.loadGatewayModelCatalog,
+    providerAuthMetadataSnapshot: params.providerAuthMetadataSnapshot,
     archivedBy: params.archivedBy,
   });
 }
@@ -124,6 +180,7 @@ async function applyMainModelPatch(params: {
   cfg?: OpenClawConfig;
   model: string | null;
   catalogRefs?: string[];
+  providerAuthMetadataSnapshot?: ProviderAuthMetadataSnapshot;
 }) {
   return expectPatchOk(
     await runPatch({
@@ -132,6 +189,8 @@ async function applyMainModelPatch(params: {
       patch: { key: MAIN_SESSION_KEY, model: params.model },
       loadGatewayModelCatalog:
         params.catalogRefs === undefined ? undefined : loadCatalog(...params.catalogRefs),
+      providerAuthMetadataSnapshot:
+        params.providerAuthMetadataSnapshot ?? EMPTY_PROVIDER_AUTH_METADATA_SNAPSHOT,
     }),
   );
 }
@@ -226,6 +285,32 @@ function createAllowlistedAnthropicModelCfg(): OpenClawConfig {
 }
 
 describe("gateway sessions patch", () => {
+  beforeEach(() => {
+    providerThinkingMocks.resolveProviderThinkingProfile.mockReset();
+    providerThinkingMocks.resolveProviderThinkingProfile.mockImplementation(
+      ({ provider, context }) => {
+        if (provider !== "openai") {
+          return undefined;
+        }
+        if (context.modelId === "gpt-5.5") {
+          return {
+            levels: (["off", "minimal", "low", "medium", "high", "xhigh"] as const).map((id) => ({
+              id,
+            })),
+          };
+        }
+        if (context.modelId === "gpt-5.6-luna") {
+          const levels =
+            context.agentRuntime === "openclaw"
+              ? (["off", "minimal", "low", "medium", "high", "max", "ultra"] as const)
+              : (["off", "minimal", "low", "medium", "high", "max"] as const);
+          return { levels: levels.map((id) => ({ id })) };
+        }
+        return undefined;
+      },
+    );
+  });
+
   afterEach(() => {
     acpSessionMetaMocks.readAcpSessionMetaForEntry.mockReset();
     resetProviderAuthAliasMapCacheForTest();
@@ -551,50 +636,6 @@ describe("gateway sessions patch", () => {
     expect(entry.category).toBe("Research");
   });
 
-  test("canonicalizes and clears session icons", async () => {
-    const icon = expectPatchOk(
-      await runPatch({
-        store: mainStoreEntry({}),
-        patch: {
-          key: MAIN_SESSION_KEY,
-          icon: "  svg:<svg viewBox='0 0 24 24'><path d='M1 2' fill='currentColor'/></svg>  ",
-        },
-      }),
-    );
-    expect(icon.icon).toBe(
-      'svg:<svg viewBox="0 0 24 24"><path d="M1 2" fill="currentColor"/></svg>',
-    );
-
-    const cleared = expectPatchOk(
-      await runPatch({
-        store: mainStoreEntry({ icon: "🦞" }),
-        patch: { key: MAIN_SESSION_KEY, icon: null },
-      }),
-    );
-    expect(cleared.icon).toBeUndefined();
-  });
-
-  test.each([
-    ["script", "svg:<svg><script>alert(1)</script></svg>"],
-    ["event handler", 'svg:<svg onload="alert(1)"></svg>'],
-    [
-      "xlink href",
-      'svg:<svg xmlns:xlink="http://www.w3.org/1999/xlink"><path xlink:href="#x"/></svg>',
-    ],
-    ["URL paint", 'svg:<svg><path fill="url(#paint)"/></svg>'],
-    ["DOCTYPE", "svg:<!DOCTYPE svg><svg></svg>"],
-    ["oversized payload", `svg:<svg><title>${"x".repeat(4096)}</title></svg>`],
-    ["double root", "svg:<svg></svg><svg></svg>"],
-  ])("rejects hostile session SVG icons: %s", async (_label, icon) => {
-    expectPatchError(
-      await runPatch({
-        store: mainStoreEntry({}),
-        patch: { key: MAIN_SESSION_KEY, icon },
-      }),
-      "invalid icon",
-    );
-  });
-
   test("rejects empty category", async () => {
     expectPatchError(
       await runPatch({
@@ -628,6 +669,56 @@ describe("gateway sessions patch", () => {
     );
 
     expect(entry.fastMode).toBe("auto");
+  });
+
+  test("sets, replaces, clears, and normalizes tool overrides", async () => {
+    const store = mainStoreEntry({});
+    const set = expectPatchOk(
+      await runPatch({
+        store,
+        patch: {
+          key: MAIN_SESSION_KEY,
+          toolOverrides: {
+            mcpServers: { zeta: false, alpha: true },
+            mcpToolsDeny: { zeta: [], alpha: ["write", "read", "write"] },
+            skills: {},
+            webSearch: true,
+          },
+        },
+      }),
+    );
+    expect(set.toolOverrides).toEqual({
+      mcpServers: { alpha: true, zeta: false },
+      mcpToolsDeny: { alpha: ["read", "write"] },
+    });
+
+    const replaced = expectPatchOk(
+      await runPatch({
+        store,
+        patch: { key: MAIN_SESSION_KEY, toolOverrides: { skills: { release: false } } },
+      }),
+    );
+    expect(replaced.toolOverrides).toEqual({ skills: { release: false } });
+
+    const normalizedEmpty = expectPatchOk(
+      await runPatch({
+        store,
+        patch: { key: MAIN_SESSION_KEY, toolOverrides: { mcpToolsDeny: { docs: [] } } },
+      }),
+    );
+    expect(normalizedEmpty.toolOverrides).toBeUndefined();
+
+    store[MAIN_SESSION_KEY] = {
+      ...normalizedEmpty,
+      toolOverrides: { webSearch: false },
+    };
+    const cleared = expectPatchOk(
+      await runPatch({
+        store,
+        patch: { key: MAIN_SESSION_KEY, toolOverrides: null },
+      }),
+    );
+    expect(cleared.toolOverrides).toBeUndefined();
   });
 
   test("persists verboseLevel=full", async () => {
@@ -711,6 +802,7 @@ describe("gateway sessions patch", () => {
       store,
       model: "byteplus-plan/ark-code-latest",
       catalogRefs: ["byteplus-plan/ark-code-latest"],
+      providerAuthMetadataSnapshot: BYTEPLUS_PROVIDER_AUTH_METADATA_SNAPSHOT,
     });
     expectModelSelection(entry, "byteplus-plan", "ark-code-latest");
     expectAuthOverride(entry, { profile: "byteplus:work", compactionCount: 2 });

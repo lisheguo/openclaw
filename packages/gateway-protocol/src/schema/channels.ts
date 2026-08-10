@@ -3,6 +3,7 @@ import type { Static } from "typebox";
 import { Type } from "typebox";
 import { closedObject } from "./closed-object.js";
 import { NonEmptyString, SecretInputSchema } from "./primitives.js";
+import { QR_PNG_DATA_URL_MAX_LENGTH, QR_PNG_DATA_URL_PREFIX } from "./qr.js";
 
 /**
  * Channel and Talk protocol schemas.
@@ -205,9 +206,14 @@ export const TalkClientCreateParamsSchema = closedObject({
   transport: Type.Optional(TalkTransportSchema),
   brain: Type.Optional(TalkBrainSchema),
   capabilities: Type.Optional(
-    Type.Array(Type.Union([Type.Literal("camera-frame"), Type.Literal("voice-transcript")]), {
-      uniqueItems: true,
-    }),
+    Type.Array(
+      Type.Union([
+        Type.Literal("camera-frame"),
+        Type.Literal("voice-transcript"),
+        Type.Literal("gateway-control-v1"),
+      ]),
+      { uniqueItems: true },
+    ),
   ),
 });
 
@@ -494,6 +500,7 @@ const BrowserRealtimeWebRtcSdpSessionSchema = closedObject({
   model: Type.Optional(Type.String()),
   voice: Type.Optional(Type.String()),
   expiresAt: Type.Optional(Type.Number()),
+  clientControl: Type.Optional(closedObject({ owner: Type.Literal("gateway") })),
 });
 
 /** Browser websocket setup payload with JSON/PCM audio contract. */
@@ -654,24 +661,30 @@ const ChannelAccountSnapshotSchema = Type.Object(
     running: Type.Optional(Type.Boolean()),
     connected: Type.Optional(Type.Boolean()),
     reconnectAttempts: Type.Optional(Type.Integer({ minimum: 0 })),
-    lastConnectedAt: Type.Optional(Type.Integer({ minimum: 0 })),
-    lastError: Type.Optional(Type.String()),
+    lastConnectedAt: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
+    lastError: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     healthState: Type.Optional(Type.String()),
-    lastStartAt: Type.Optional(Type.Integer({ minimum: 0 })),
-    lastStopAt: Type.Optional(Type.Integer({ minimum: 0 })),
-    lastInboundAt: Type.Optional(Type.Integer({ minimum: 0 })),
-    lastOutboundAt: Type.Optional(Type.Integer({ minimum: 0 })),
-    lastTransportActivityAt: Type.Optional(Type.Integer({ minimum: 0 })),
+    lastStartAt: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
+    lastStopAt: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
+    lastInboundAt: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
+    lastOutboundAt: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
+    lastTransportActivityAt: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
     busy: Type.Optional(Type.Boolean()),
     activeRuns: Type.Optional(Type.Integer({ minimum: 0 })),
-    lastRunActivityAt: Type.Optional(Type.Integer({ minimum: 0 })),
-    lastProbeAt: Type.Optional(Type.Integer({ minimum: 0 })),
+    lastRunActivityAt: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
+    activeRunStartedAt: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
+    lastProbeAt: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
     mode: Type.Optional(Type.String()),
     dmPolicy: Type.Optional(Type.String()),
     allowFrom: Type.Optional(Type.Array(Type.String())),
     tokenSource: Type.Optional(Type.String()),
     botTokenSource: Type.Optional(Type.String()),
     appTokenSource: Type.Optional(Type.String()),
+    credentialSource: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    audienceType: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    audience: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    webhookPath: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+    webhookUrl: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     baseUrl: Type.Optional(Type.String()),
     allowUnmentionedGroups: Type.Optional(Type.Boolean()),
     cliPath: Type.Optional(Type.Union([Type.String(), Type.Null()])),
@@ -695,6 +708,7 @@ const ChannelUiMetaSchema = closedObject({
 /** Event-loop health snapshot included with channel status responses. */
 const ChannelEventLoopHealthSchema = closedObject({
   degraded: Type.Boolean(),
+  degradedSinceMs: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
   reasons: Type.Array(
     Type.Union([
       Type.Literal("event_loop_delay"),
@@ -751,16 +765,18 @@ export const WebLoginStartParamsSchema = closedObject({
   accountId: Type.Optional(Type.String()),
 });
 
-const QrDataUrlSchema = Type.String({
-  maxLength: 16_384,
-  pattern: "^data:image/png;base64,",
+/** Waits for web login completion or the next QR code. */
+const WebLoginQrDataUrlSchema = Type.String({
+  maxLength: QR_PNG_DATA_URL_MAX_LENGTH,
+  // This request field shipped with prefix-only validation. Keep accepting
+  // existing client encodings; newly produced QR payloads use the strict schema.
+  pattern: `^${QR_PNG_DATA_URL_PREFIX}`,
 });
 
-/** Waits for web login completion or the next QR code. */
 export const WebLoginWaitParamsSchema = closedObject({
   timeoutMs: Type.Optional(Type.Integer({ minimum: 0 })),
   accountId: Type.Optional(Type.String()),
-  currentQrDataUrl: Type.Optional(QrDataUrlSchema),
+  currentQrDataUrl: Type.Optional(WebLoginQrDataUrlSchema),
 });
 
 // Wire types derive directly from local schema consts so public d.ts graphs never

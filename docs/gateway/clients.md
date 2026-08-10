@@ -31,7 +31,7 @@ install them only after the registry pages below resolve.
   provides schemas, runtime validators, TypeScript types, client identity and
   capability registries, structured error readers, and protocol version constants.
   Its npm tarball also includes the generated
-  [`protocol.schema.json`](https://unpkg.com/@openclaw/gateway-protocol/protocol.schema.json)
+  [`protocol.schema.json`](https://unpkg.com/@openclaw/gateway-protocol@beta/protocol.schema.json)
   machine-readable contract.
 - [`@openclaw/gateway-client`](https://www.npmjs.com/package/@openclaw/gateway-client)
   is the reference connection implementation. Import the package root for the Node
@@ -65,9 +65,12 @@ gateway` or the `openclaw onboard --gateway-auth ...` options, then let device
 pairing mint the client token:
 
 1. Persist an Ed25519 device identity in the client.
-2. Wait for `connect.challenge`, sign the challenge-bound device payload, and send
-   `connect` with the requested operator role, scopes, and the shared Gateway token
-   or password for bootstrap authentication.
+2. Wait for `connect.challenge`, use its `ts` as the device proof's `signedAt`,
+   sign the challenge-bound device payload, and send `connect` with the requested
+   operator role, scopes, and the shared Gateway token or password for bootstrap
+   authentication. A received WebSocket challenge without a non-negative integer
+   `ts` is invalid. Clients that explicitly support Gateways from before
+   `connect.challenge` existed may use local time only on their no-challenge path.
 3. If the Gateway returns structured `PAIRING_REQUIRED` details, show the request
    ID and pause or retry according to `error.details.recommendedNextStep`.
 4. On the Gateway host, review the request with `openclaw devices list`, then
@@ -94,8 +97,8 @@ const caps = [GATEWAY_CLIENT_CAPS.TOOL_EVENTS];
 
 The current registry contains `approvals`, `exec-approvals`, `inline-widgets`,
 `run-tool-bindings`, `session-scoped-events`, `plugin-approvals`,
-`task-suggestions`, `terminal-offset-seq`, `tool-events`, and `ui-commands`.
-Advertise only capabilities the client actually implements.
+`system-agent-qr-code`, `task-suggestions`, `terminal-offset-seq`, `tool-events`,
+and `ui-commands`. Advertise only capabilities the client actually implements.
 
 <Warning>
 `tool-events` gates live tool-execution streaming. The Gateway registers only
@@ -107,6 +110,69 @@ handshake does not report an error.
 Capability-gated agent tools are a separate use of the same declaration. If an
 agent tool requires a client capability, the Gateway omits that tool unless the
 originating client advertised every required capability.
+
+## Validate attachments before sending
+
+Attachment limits are operator-tunable, so do not hardcode them. Read
+`hello-ok.policy.attachments` and validate locally before uploading:
+
+```ts
+const attachments = hello.policy.attachments;
+if (attachments) {
+  const ceiling = isImage ? attachments.maxImageBytes : attachments.maxBytes;
+  if (file.byteLength > ceiling) rejectLocally();
+}
+```
+
+Both values are decoded per-attachment ceilings. Still check the serialized
+request against `policy.maxPayload`: attachments travel as base64, so a file near
+`maxBytes` can exceed the frame limit on its own. Older gateways omit
+`policy.attachments`; when it is absent, send and handle the server outcome.
+Accepted MIME types and per-message handling are not advertised because they
+depend on the entrypoint and the resolved model. The gateway can return a typed
+rejection, while text-only model runs can omit additional images after their
+offload cap and still complete the request. The values are a connection-time
+snapshot, so re-read them on every reconnect.
+
+### Present system-agent QR codes
+
+Advertise `GATEWAY_CLIENT_CAPS.SYSTEM_AGENT_QR_CODE` only when the client can
+render a QR image and return a deliberate acknowledgement. A pending
+`openclaw.chat` response can then carry a QR `step` through the same wizard-step
+contract used for other setup controls:
+
+```json
+{
+  "step": {
+    "id": "setup-qr",
+    "type": "qr",
+    "title": "Scan QR code",
+    "message": "Scan the code, then continue.",
+    "qrDataUrl": "data:image/png;base64,...",
+    "expiresInMs": 120000,
+    "executor": "client"
+  }
+}
+```
+
+`qrDataUrl` is no longer than 16,384 characters. `expiresInMs` is the remaining
+lifetime when the Gateway emits the response, so remote clients never compare
+the Gateway clock with their own. Acknowledge it with
+`wizardAnswer: { "stepId": "setup-qr" }`.
+
+Keep the QR visible only while that step remains unresolved and for at most
+`step.expiresInMs` after receipt. While it is visible, a client may poll
+`openclaw.chat` with the same `sessionId` and `pollStepId` set to `step.id`; this
+observes owner completion without answering the step. At the deadline, remove
+both the image and acknowledgement action. Discard the image bytes after a
+confirmed or delivery-uncertain acknowledgement. Clients that do not advertise
+the capability retain the prose fallback and never receive a QR step.
+
+The negotiated QR capability is part of an in-memory system-agent session.
+Reconnects may reuse the session only while that capability and the Gateway
+`snapshot.processInstanceId` are unchanged. If the capability changes, the
+process ID changes, or an older Gateway omits the process ID, discard pending QR
+state and call `openclaw.chat` with `reset: true` before continuing.
 
 ## Recover state after reconnect
 
@@ -132,6 +198,30 @@ The outer event frame also has an optional `seq`, which orders events on the
 current WebSocket connection. It resets with a new connection. The `seq` inside
 an `agent` event payload is assigned per run and orders that run's lifecycle,
 assistant, plan, tool, and other stream events.
+
+## Render generated image artifacts
+
+Assistant-generated images arrive as canonical `type: "image"` content blocks.
+Managed blocks include a stable `artifactId`, a Gateway-relative `url`, MIME
+type, dimensions, size, and accessible alt text. Keep that reference in the
+transcript cache; do not persist downloaded bytes or temporary download URLs.
+
+Resolve the image through the authenticated WebSocket connection:
+
+1. Call `artifacts.download` with the current `sessionKey`, optional `agentId`,
+   and the block's `artifactId`.
+2. Use the returned short-lived `url` before `expiresAt`. The URL is scoped to
+   that exact transcript-backed artifact and does not contain a reusable Gateway
+   or device credential.
+3. Fetch it from the Gateway origin using the same TLS pin and reverse-proxy
+   headers as the active connection. Validate the response as an image and
+   enforce a 12 MiB source limit plus a bounded decoded thumbnail.
+4. If the URL expires, repeat `artifacts.download` once. Reconnect or route
+   changes cancel the old load rather than retargeting it to another Gateway.
+
+Older image blocks without `artifactId` remain displayable by existing Control
+UI clients, but native clients should show a readable attachment fallback rather
+than forward a shared owner credential.
 
 ## Use history metadata and stable anchors
 

@@ -120,12 +120,14 @@ export type ChannelSetupWizardCredential = {
   }) => OpenClawConfig | Promise<OpenClawConfig>;
 };
 
-/** Declarative non-secret text step that can depend on resolved credentials. */
+/** Declarative text step that can depend on resolved credentials. */
 export type ChannelSetupWizardTextInput = {
   /** Plugin-owned key written into the runtime setup input. */
   inputKey: string;
   message: string;
   placeholder?: string;
+  /** Mask input and keep any configured value server-side. */
+  sensitive?: boolean;
   required?: boolean;
   applyEmptyValue?: boolean;
   helpTitle?: string;
@@ -303,6 +305,8 @@ export type SetupChannelsOptions = {
   allowDisable?: boolean;
   allowIMessageInstall?: boolean;
   allowSignalInstall?: boolean;
+  /** Abort in-flight setup work when the owning hosted wizard is cancelled. */
+  abortSignal?: AbortSignal;
   /** Revalidate host authority immediately before an installer or other durable effect. */
   beforePersistentEffect?: () => Promise<void>;
   onSelection?: (selection: ChannelId[]) => void;
@@ -324,6 +328,8 @@ export type SetupChannelsOptions = {
   skipConfirm?: boolean;
   quickstartDefaults?: boolean;
   initialSelection?: ChannelId[];
+  /** Finish after the explicitly targeted channel is configured or paused. */
+  finishAfterInitialSelection?: boolean;
   secretInputMode?: "plaintext" | "ref";
 };
 
@@ -379,10 +385,18 @@ export type ChannelOnboardingPostWriteHook = {
   run: (ctx: { cfg: OpenClawConfig; runtime: RuntimeEnv }) => Promise<void> | void;
 };
 
-export type ChannelSetupResult = {
-  cfg: OpenClawConfig;
-  accountId?: string;
-};
+export type ChannelSetupResult =
+  | {
+      cfg: OpenClawConfig;
+      accountId?: string;
+      completion?: "configured";
+    }
+  | {
+      cfg: OpenClawConfig;
+      /** Paused setup is persisted without configured-account hooks or routing. */
+      completion: "paused";
+      accountId?: never;
+    };
 
 export type ChannelSetupConfiguredResult = ChannelSetupResult | "skip";
 

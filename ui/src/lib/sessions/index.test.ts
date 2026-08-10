@@ -4,82 +4,15 @@ import {
   GatewayRequestError,
   type GatewayBrowserClient,
   type GatewayEventFrame,
-  type GatewayHelloOk,
 } from "../../api/gateway.ts";
 import type { SessionsListResult } from "../../api/types.ts";
 import { waitForFast } from "../../test-helpers/wait-for.ts";
 import { createSessionCapability, reconcileSessionRunTerminal } from "./index.ts";
-
-function sessionsResult(sessions: SessionsListResult["sessions"], ts: number): SessionsListResult {
-  return {
-    ts,
-    path: "(multiple)",
-    count: sessions.length,
-    defaults: { modelProvider: null, model: null, contextTokens: null },
-    sessions,
-  };
-}
-
-function deferred<T>() {
-  let resolve: (value: T) => void = () => undefined;
-  let reject: (error: unknown) => void = () => undefined;
-  const promise = new Promise<T>((next, fail) => {
-    resolve = next;
-    reject = fail;
-  });
-  return { promise, reject, resolve };
-}
-
-function createGatewayHarness(client: GatewayBrowserClient, featureMethods?: string[]) {
-  let snapshot: {
-    client: GatewayBrowserClient | null;
-    phase: "connected" | "reconnecting";
-    sessionKey: string;
-    assistantAgentId: string | null;
-    hello: GatewayHelloOk | null;
-  } = {
-    client,
-    phase: "connected" as const,
-    sessionKey: "agent:main:main",
-    assistantAgentId: "main",
-    hello:
-      featureMethods === undefined
-        ? null
-        : ({ features: { methods: featureMethods } } as GatewayHelloOk),
-  };
-  const listeners = new Set<(next: typeof snapshot) => void>();
-  const eventListeners = new Set<(event: GatewayEventFrame) => void>();
-  return {
-    gateway: {
-      get snapshot() {
-        return snapshot;
-      },
-      subscribe(listener: (next: typeof snapshot) => void) {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-      subscribeEvents(listener: (event: GatewayEventFrame) => void) {
-        eventListeners.add(listener);
-        return () => eventListeners.delete(listener);
-      },
-    },
-    emitEvent: (event: GatewayEventFrame) => {
-      for (const listener of eventListeners) {
-        listener(event);
-      }
-    },
-    publish: (connected: boolean, nextClient: GatewayBrowserClient | null = snapshot.client) => {
-      snapshot = {
-        ...snapshot,
-        client: nextClient,
-        phase: connected ? "connected" : "reconnecting",
-      };
-      for (const listener of listeners) {
-        listener(snapshot);
-      }
-    },
-  };
-}
+import {
+  createGatewayHarness,
+  deferred,
+  sessionsResult,
+} from "./session-capability.test-support.ts";
 
 function sessionChangedEvent(key: string): GatewayEventFrame {
   return {
@@ -225,7 +158,7 @@ describe("createSessionCapability", () => {
         return await renamed.promise;
       }
       if (method === "sessions.subscribe") {
-        return {};
+        return { subscribed: true };
       }
       if (method === "sessions.list") {
         return sessionsResult([], 2);
@@ -253,7 +186,7 @@ describe("createSessionCapability", () => {
         return await replaced.promise;
       }
       if (method === "sessions.subscribe") {
-        return {};
+        return { subscribed: true };
       }
       if (method === "sessions.list") {
         return sessionsResult([], 2);
@@ -449,7 +382,7 @@ describe("createSessionCapability", () => {
     let listCalls = 0;
     const request = vi.fn(async (method: string) => {
       if (method === "sessions.subscribe") {
-        return {};
+        return { subscribed: true };
       }
       if (method === "sessions.list") {
         listCalls += 1;
@@ -482,7 +415,7 @@ describe("createSessionCapability", () => {
         return await staleCreate.promise;
       }
       if (method === "sessions.subscribe") {
-        return {};
+        return { subscribed: true };
       }
       if (method === "sessions.list") {
         return sessionsResult([], 2);
@@ -583,7 +516,7 @@ describe("createSessionCapability", () => {
         return await staleReset.promise;
       }
       if (method === "sessions.subscribe") {
-        return {};
+        return { subscribed: true };
       }
       if (method === "sessions.list") {
         return sessionsResult([], 2);
@@ -609,7 +542,7 @@ describe("createSessionCapability", () => {
         throw new Error("post-commit lifecycle failed");
       }
       if (method === "sessions.subscribe") {
-        return {};
+        return { subscribed: true };
       }
       if (method === "sessions.list") {
         return sessionsResult([], 2);
@@ -625,14 +558,14 @@ describe("createSessionCapability", () => {
     sessions.dispose();
   });
 
-  it("rolls back an optimistic model patch when its connection epoch retires", async () => {
+  it("clears optimistic and settled model overrides when its connection epoch retires", async () => {
     const stalePatch = deferred<unknown>();
     const request = vi.fn(async (method: string) => {
       if (method === "sessions.patch") {
         return await stalePatch.promise;
       }
       if (method === "sessions.subscribe") {
-        return {};
+        return { subscribed: true };
       }
       if (method === "sessions.list") {
         return sessionsResult([], 2);
@@ -643,18 +576,20 @@ describe("createSessionCapability", () => {
     const { gateway, publish } = createGatewayHarness(client);
     const sessions = createSessionCapability(gateway);
     const key = "agent:main:main";
+    const inactiveKey = "agent:main:inactive";
     sessions.setModelOverride(key, "openai/gpt-old");
+    sessions.setModelOverride(inactiveKey, "openai/gpt-old-account");
 
     const operation = sessions.patch(key, { model: "openai/gpt-new" });
     expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-new");
 
     publish(false);
-    expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-old");
+    expect(sessions.state.modelOverrides).toEqual({});
     publish(true);
     stalePatch.resolve({});
 
     await expect(operation).resolves.toBeNull();
-    expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-old");
+    expect(sessions.state.modelOverrides).toEqual({});
     sessions.dispose();
   });
 
@@ -665,7 +600,7 @@ describe("createSessionCapability", () => {
         return { ok: true, path: "", key: "agent:main:main", entry: {} };
       }
       if (method === "sessions.subscribe") {
-        return {};
+        return { subscribed: true };
       }
       if (method === "sessions.list") {
         return sessionsResult([], 2);
@@ -683,7 +618,7 @@ describe("createSessionCapability", () => {
       { model: "openai/gpt-new" },
       { waitFor: priorPatch.promise },
     );
-    expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-new");
+    expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-old");
     expect(request).not.toHaveBeenCalledWith("sessions.patch", expect.anything());
 
     publish(false);
@@ -692,7 +627,7 @@ describe("createSessionCapability", () => {
 
     await expect(operation).resolves.toBeNull();
     expect(request).not.toHaveBeenCalledWith("sessions.patch", expect.anything());
-    expect(sessions.state.modelOverrides[key]).toBe("openai/gpt-old");
+    expect(sessions.state.modelOverrides[key]).toBeUndefined();
     sessions.dispose();
   });
 

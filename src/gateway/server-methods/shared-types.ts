@@ -1,6 +1,8 @@
 import type {
   SessionApprovalReplay,
   SystemAgentChatQuestion,
+  WizardAnswer,
+  WizardStep,
 } from "../../../packages/gateway-protocol/src/index.js";
 // Shared server-method types define the client, context, response, and handler
 // contracts used by every gateway RPC method module.
@@ -11,7 +13,6 @@ import type {
 } from "../../../packages/gateway-protocol/src/schema/frames.js";
 import type { ModelCatalogEntry } from "../../agents/model-catalog.types.js";
 import type { CliDeps } from "../../cli/deps.types.js";
-import type { HealthSummary } from "../../commands/health.types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type {
   PluginApprovalRequest,
@@ -19,6 +20,7 @@ import type {
 } from "../../infra/plugin-approvals.js";
 import type { SystemAgentApprovalRequestPayload } from "../../infra/system-agent-approvals.js";
 import type { createSubsystemLogger } from "../../logging/subsystem.js";
+import type { PluginSubagentRequesterContext } from "../../plugins/runtime/subagent-requester-context.js";
 import type { RuntimePluginToolGrant } from "../../plugins/runtime/tool-grant.js";
 import type { SystemAgentOperation } from "../../system-agent/operation-types.js";
 import type { WizardSession } from "../../wizard/session.js";
@@ -26,6 +28,7 @@ import type { AgentRuntimeIdentity } from "../agent-runtime-identity-token.js";
 import type { ChatAbortControllerEntry } from "../chat-abort.js";
 import type { GatewayHotReloadStatus } from "../config-reload-status.types.js";
 import type { ExecApprovalManager, ExecApprovalRecord } from "../exec-approval-manager.js";
+import type { HealthSummary } from "../health/types.js";
 import type { GatewayMethodRegistryView } from "../methods/descriptor.js";
 import type { NodeRegistry } from "../node-registry.js";
 import type { PluginNodeCapabilitySurface } from "../plugin-node-capability.js";
@@ -47,10 +50,16 @@ import type { SessionObserverService } from "../session-observer-contract.js";
 import type { TerminalLaunchResolution } from "../terminal/launch.js";
 import type { TerminalSessionManager } from "../terminal/session-manager.js";
 import type { WorkerSessionPlacementReader } from "../worker-environments/placement-projector.js";
+import type { WorkerSessionPlacementRetirementService } from "../worker-environments/placement-store.js";
 import type {
   WorkerEnvironmentServiceContract,
   WorkerPlacementDispatchContract,
 } from "../worker-environments/service-contract.js";
+import type { ChatMetadataReadParams, ChatMetadataResult } from "./chat-metadata-contract.js";
+import type {
+  ChatStartupProjectionReadParams,
+  ChatStartupProjectionResult,
+} from "./chat-startup-projection-contract.js";
 import type { TrustedSessionCreation } from "./session-creation-provenance.js";
 
 /**
@@ -62,13 +71,17 @@ type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 export type GatewayClient = {
   connect: ConnectParams;
   connId?: string;
+  presenceKey?: string;
   clientIp?: string;
   /** Client id verified against the server-approved device pairing record. */
   pairedClientId?: string;
   authenticatedUserId?: string;
+  /** Verified Tailscale provider identity; generic proxy identities must not infer this. */
+  authenticatedUserIsTailscaleProvider?: boolean;
   authenticatedUserProfile?: {
     profileId: string;
     displayName: string | null;
+    avatarRevision?: string;
     hasAvatar: boolean;
     updatedAt: number;
   };
@@ -81,6 +94,8 @@ export type GatewayClient = {
   /** Signed shared-auth session admitted only to approve its own upgrade pairing. */
   isControlUiDeviceAuthMigration?: boolean;
   internal?: {
+    /** Handshake-attested direct-local transport; never accepted from wire params. */
+    isLocalClient?: true;
     /** Marks the server-constructed client used by trusted in-process dispatch. */
     syntheticClient?: true;
     /** Overrides persisted sender attribution without changing the authorizing client identity. */
@@ -93,13 +108,15 @@ export type GatewayClient = {
     agentRuntimeIdentity?: AgentRuntimeIdentity;
     pluginRuntimeOwnerId?: string;
     agentRunTracking?: "plugin_subagent";
+    /** Host-captured requester lineage for opt-in plugin subagent completion delivery. */
+    pluginSubagentRequester?: PluginSubagentRequesterContext;
     /** Host-owned exact media set for a scoped automatic recovery delivery. */
     internalDeliveryMediaUrls?: string[];
     internalDeliverySuppressText?: boolean;
     /** Plugin-owned tools authorized for this internal subagent run. */
     runtimePluginToolGrant?: RuntimePluginToolGrant;
-    /** In-process subagent-completion handoff eligible for verified policy inheritance. */
-    delegatedToolPolicyHandoff?: true;
+    /** Opaque in-process subagent-completion capability; never accepted from wire params. */
+    delegatedToolPolicyHandoffId?: string;
   };
 };
 
@@ -122,17 +139,29 @@ type SystemAgentHistoryTurn = {
   text: string;
 };
 
+type GatewaySystemAgentChatReply = {
+  text: string;
+  action: "none" | "exit" | "open-tui" | "open-setup";
+  sensitive?: boolean;
+  wizardInputPending?: boolean;
+  wizardSettling?: boolean;
+  question?: SystemAgentChatQuestion;
+  step?: WizardStep;
+};
+
 type GatewaySystemAgentSession = {
   engine: {
-    handle: (message: string) => Promise<{
-      text: string;
-      action: "none" | "exit" | "open-tui" | "open-setup";
-      sensitive?: boolean;
-      question?: SystemAgentChatQuestion;
-    }>;
+    handle: (
+      message: string,
+      options?: { uiContext?: { page: string } },
+    ) => Promise<GatewaySystemAgentChatReply>;
+    answerWizard: (answer: WizardAnswer) => Promise<GatewaySystemAgentChatReply>;
+    pollStep: (stepId: string) => Promise<GatewaySystemAgentChatReply>;
     seedHistory: (turns: readonly SystemAgentHistoryTurn[]) => void;
     historyLength: () => number;
     historySince: (index: number) => SystemAgentHistoryTurn[];
+    hasPendingQrCode: () => boolean;
+    getPersistentApplySettlement: () => Promise<void> | null;
     getPendingOperatorProposal: () => { operation: SystemAgentOperation; hash: string } | null;
     resolveOperatorApproval: (
       decision: "allow-once" | "allow-always" | "deny" | null,
@@ -146,6 +175,8 @@ type GatewaySystemAgentSession = {
   welcomeAuditSequence?: number;
   lastUsedAt: number;
   ownerKey: string;
+  /** QR presentation support negotiated when the session was created. */
+  supportsQrCode: boolean;
   pendingApproval?: { id: string; proposalHash: string };
 };
 
@@ -155,6 +186,12 @@ export type GatewayRequestContext = {
   cron: GatewayCronServiceContract;
   cronStorePath: string;
   getRuntimeConfig: () => OpenClawConfig;
+  controlUiSessionPullRequests?: ReturnType<
+    typeof import("../control-ui-session-pr-subscriptions.js").createControlUiSessionPullRequestSubscriptions
+  >;
+  sessionViewerPresence?: ReturnType<
+    typeof import("../session-viewer-presence.js").createSessionViewerPresenceDeclarations
+  >;
   sessionCompanion?: import("../session-companion.js").SessionCompanionService;
   sessionObserver?: SessionObserverService;
   notifyPluginMetadataChanged: () => void;
@@ -193,6 +230,15 @@ export type GatewayRequestContext = {
     readOnly?: boolean;
     workspaceDir?: string;
   }) => Promise<GatewayModelCatalogSnapshot>;
+  readPreparedGatewayModelCatalog?: (params?: {
+    agentId?: string;
+    agentDir?: string;
+    workspaceDir?: string;
+  }) => Promise<ModelCatalogEntry[] | undefined>;
+  readChatMetadata: (params: ChatMetadataReadParams) => Promise<ChatMetadataResult>;
+  readChatStartupProjection?: (
+    params: ChatStartupProjectionReadParams,
+  ) => Promise<ChatStartupProjectionResult>;
   getHealthCache: () => HealthSummary | null;
   refreshHealthSnapshot: (opts?: {
     probe?: boolean;
@@ -227,6 +273,13 @@ export type GatewayRequestContext = {
     opts?: { role?: string; reason?: string },
   ) => void;
   hasConnectedClientsForDevice?: (deviceId: string) => boolean;
+  refreshConnectedUserProfile?: (profile: {
+    id: string;
+    displayName: string | null;
+    avatarRevision: string;
+    hasAvatar: boolean;
+    updatedAt: number;
+  }) => void;
   disconnectClientsUsingSharedGatewayAuth?: () => void;
   enforceSharedGatewayAuthGenerationForConfigWrite?: (nextConfig: OpenClawConfig) => void;
   claimControlUiDeviceAuthMigration?: (deviceId: string) => boolean;
@@ -239,8 +292,9 @@ export type GatewayRequestContext = {
   nodeRegistry: NodeRegistry;
   /** Durable cloud-worker lifecycle; absent from lightweight in-process contexts. */
   workerEnvironmentService?: WorkerEnvironmentServiceContract;
-  /** Durable per-session worker placement; absent when cloud workers are disabled. */
-  workerSessionPlacementService?: WorkerSessionPlacementReader;
+  /** Durable per-session worker placement; absent only from lightweight in-process contexts. */
+  workerSessionPlacementService?: WorkerSessionPlacementReader &
+    Partial<WorkerSessionPlacementRetirementService>;
   /** One-way local-to-worker dispatch; absent when cloud workers are disabled. */
   workerPlacementDispatchService?: WorkerPlacementDispatchContract;
   // Operator terminal session store. Absent in local/in-process contexts where
@@ -311,6 +365,8 @@ export type GatewayRequestOptions = {
   respond: RespondFn;
   context: GatewayRequestContext;
   methodRegistry?: GatewayMethodRegistryView;
+  /** In-process caller lifetime; never serialized into a Gateway request frame. */
+  signal?: AbortSignal;
 };
 
 /** Commit-time guard captured by the pre-dispatch session participation check. */
@@ -328,6 +384,8 @@ export type GatewayRequestHandlerOptions = {
   respond: RespondFn;
   context: GatewayRequestContext;
   sessionMutationAuthorization?: SessionMutationAuthorization;
+  /** In-process caller lifetime; absent for ordinary transport requests. */
+  signal?: AbortSignal;
 };
 
 /** Single gateway method implementation. */

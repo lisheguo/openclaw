@@ -1,7 +1,4 @@
-import {
-  installSessionPlacementAdmissionProvider,
-  installSessionPlacementResetGuard,
-} from "../agents/session-placement-admission.js";
+import { installSessionPlacementAdmissionProvider } from "../agents/session-placement-admission.js";
 import { clearSessionQueues } from "../auto-reply/reply/queue/cleanup.js";
 import { getRuntimeConfig } from "../config/config.js";
 import { runExclusiveSessionStoreWrite } from "../config/sessions/store-writer.js";
@@ -41,7 +38,8 @@ const loadWorkerPlacementSessionRuntimeModule = createLazyRuntimeModule(async ()
     managedWorktrees,
     resolveWorkerPlacementSessionRuntime:
       placementSessionRuntime.resolveWorkerPlacementSessionRuntime,
-    resolveFreshestSessionEntryFromStoreKeys: sessionUtils.resolveFreshestSessionEntryFromStoreKeys,
+    resolveCanonicalSessionEntryFromStoreKeys:
+      sessionUtils.resolveCanonicalSessionEntryFromStoreKeys,
     resolveGatewaySessionStoreTargetWithStore:
       sessionUtils.resolveGatewaySessionStoreTargetWithStore,
   };
@@ -53,7 +51,7 @@ class WorkerDispatchTargetChangedError extends Error {
 
 /** Serializes reconciliation sweeps against in-flight dispatches so a sweep never
  * observes a placement mid-transition. Dispatches wait out any pending sweep. */
-function coordinateWorkerPlacementDispatch(
+export function coordinateWorkerPlacementDispatch(
   service: WorkerPlacementDispatchService,
 ): WorkerPlacementDispatchService {
   let activeDispatchCount = 0;
@@ -127,14 +125,18 @@ function coordinateWorkerPlacementDispatch(
     }
   };
   return {
-    dispatch: async (request) => await runPlacementOperation(() => service.dispatch(request)),
+    dispatch: async (request, onTransition) =>
+      await runPlacementOperation(() => service.dispatch(request, onTransition)),
     forceDestroyEnvironment: (environmentId, onCleanupError) =>
       runExclusivePlacementOperation(() =>
         service.forceDestroyEnvironment(environmentId, onCleanupError),
       ),
     reclaim: async (request) => await runPlacementOperation(() => service.reclaim(request)),
     reconcile: () => runReconciliation(service.reconcile),
-    reconcileActive: () => runReconciliation(service.reconcileActive),
+    reconcileActive: (environmentId) =>
+      environmentId === undefined
+        ? runReconciliation(() => service.reconcileActive())
+        : runExclusivePlacementOperation(() => service.reconcileActive(environmentId)),
   };
 }
 
@@ -166,7 +168,7 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
   }): Promise<string> => {
     const {
       managedWorktrees,
-      resolveFreshestSessionEntryFromStoreKeys,
+      resolveCanonicalSessionEntryFromStoreKeys,
       resolveGatewaySessionStoreTargetWithStore,
     } = await loadWorkerPlacementSessionRuntimeModule();
     const target = resolveGatewaySessionStoreTargetWithStore({
@@ -175,7 +177,7 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
       agentId,
       clone: false,
     });
-    const sessionEntry = resolveFreshestSessionEntryFromStoreKeys(target.store, target.storeKeys);
+    const sessionEntry = resolveCanonicalSessionEntryFromStoreKeys(target.store, target.storeKeys);
     const worktree = managedWorktrees.findLiveByOwner("session", target.canonicalKey);
     if (
       sessionEntry?.sessionId !== sessionId ||
@@ -197,7 +199,7 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
         const {
           isWorkerPlacementSessionRuntimeSupported,
           managedWorktrees,
-          resolveFreshestSessionEntryFromStoreKeys,
+          resolveCanonicalSessionEntryFromStoreKeys,
           resolveGatewaySessionStoreTargetWithStore,
           resolveWorkerPlacementSessionRuntime,
         } = await loadWorkerPlacementSessionRuntimeModule();
@@ -225,7 +227,7 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
               agentId,
               clone: false,
             });
-            const currentEntry = resolveFreshestSessionEntryFromStoreKeys(
+            const currentEntry = resolveCanonicalSessionEntryFromStoreKeys(
               currentTarget.store,
               currentTarget.storeKeys,
             );
@@ -299,7 +301,7 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
         const {
           isWorkerPlacementSessionRuntimeSupported,
           managedWorktrees,
-          resolveFreshestSessionEntryFromStoreKeys,
+          resolveCanonicalSessionEntryFromStoreKeys,
           resolveGatewaySessionStoreTargetWithStore,
           resolveWorkerPlacementSessionRuntime,
         } = await loadWorkerPlacementSessionRuntimeModule();
@@ -327,7 +329,7 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
               agentId,
               clone: false,
             });
-            const currentEntry = resolveFreshestSessionEntryFromStoreKeys(
+            const currentEntry = resolveCanonicalSessionEntryFromStoreKeys(
               currentTarget.store,
               currentTarget.storeKeys,
             );
@@ -376,7 +378,7 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
       runReclaimBarrier: async ({ sessionId, sessionKey, agentId, reclaim }) => {
         const {
           managedWorktrees,
-          resolveFreshestSessionEntryFromStoreKeys,
+          resolveCanonicalSessionEntryFromStoreKeys,
           resolveGatewaySessionStoreTargetWithStore,
         } = await loadWorkerPlacementSessionRuntimeModule();
         const target = resolveGatewaySessionStoreTargetWithStore({
@@ -403,7 +405,7 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
               agentId,
               clone: false,
             });
-            const currentEntry = resolveFreshestSessionEntryFromStoreKeys(
+            const currentEntry = resolveCanonicalSessionEntryFromStoreKeys(
               currentTarget.store,
               currentTarget.storeKeys,
             );
@@ -521,13 +523,6 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
     registerSidecar: (sidecar: WorkerPlacementSidecar) => void;
   }): Promise<WorkerPlacementSidecar | null> => {
     const uninstallPlacementAdmission = installSessionPlacementAdmissionProvider(admissionProvider);
-    const uninstallPlacementResetGuard = installSessionPlacementResetGuard((sessionId) => {
-      const placement = params.placements.get(sessionId);
-      if (!placement || placement.state === "local") {
-        return undefined;
-      }
-      return `cloud worker placement is ${placement.state}`;
-    });
     let placementReconcileInterval: ReturnType<typeof setInterval> | undefined;
     let placementReconcileInFlight: Promise<void> | undefined;
     let stopped = false;
@@ -560,7 +555,6 @@ export function createGatewayWorkerPlacementRuntime(params: GatewayWorkerPlaceme
         clearInterval(placementReconcileInterval);
         placementReconcileInterval = undefined;
         uninstallPlacementAdmission();
-        uninstallPlacementResetGuard();
         const environmentStop = params.environments.stop();
         const stopResults = await Promise.allSettled([
           ...(placementReconcileInFlight ? [placementReconcileInFlight] : []),

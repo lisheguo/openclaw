@@ -1,7 +1,9 @@
 // Exec tests cover command execution, output capture, and cancellation behavior.
 import type { ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
+import fs from "node:fs/promises";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { setVerbose } from "../global-state.js";
 import { attachChildProcessBridge } from "./child-process-bridge.js";
@@ -260,6 +262,56 @@ describe("runCommandWithTimeout", () => {
     expect(result.preservedStdoutLines).toEqual([
       "Visit https://example.com/device and enter code ABCD-EFGH",
     ]);
+  });
+
+  it("delivers preserved lines while the command is still running", async () => {
+    const abortController = new AbortController();
+    let resolveLinkUri!: () => void;
+    const linkUriSeen = new Promise<void>((resolve) => {
+      resolveLinkUri = resolve;
+    });
+    let commandSettled = false;
+    const commandPromise = runCommandWithTimeout(
+      [
+        process.execPath,
+        "-e",
+        [
+          "process.stdout.write('sgnl://linkdevice?uuid=test&pub_key=test\\n')",
+          "setInterval(() => {}, 1_000)",
+        ].join(";"),
+      ],
+      {
+        signal: abortController.signal,
+        killProcessTree: true,
+        outputCapture: { stdout: "discard", stderr: "tail" },
+        timeoutMs: 3_000,
+        preserveOutputLine: (line, stream) => {
+          if (stream === "stdout" && line.startsWith("sgnl://linkdevice?")) {
+            resolveLinkUri();
+          }
+          return false;
+        },
+      },
+    );
+    void commandPromise.then(
+      () => {
+        commandSettled = true;
+      },
+      () => {
+        commandSettled = true;
+      },
+    );
+
+    await expect(
+      Promise.race([linkUriSeen.then(() => "line"), commandPromise.then(() => "command")]),
+    ).resolves.toBe("line");
+    expect(commandSettled).toBe(false);
+
+    abortController.abort();
+    await expect(commandPromise).resolves.toMatchObject({
+      code: null,
+      termination: "signal",
+    });
   });
 
   it("bounds preserved matching output for long lines without newlines", async () => {
@@ -629,6 +681,20 @@ describe("runExec", () => {
     );
     expect(stdout).toBe("input");
     expect(stderr).toBe("base");
+  });
+
+  it("supports an inherited file descriptor as stdin", async () => {
+    const handle = await fs.open(fileURLToPath(import.meta.url), "r");
+    try {
+      const { stdout } = await runExec(
+        process.execPath,
+        ["-e", "process.stdin.pipe(process.stdout)"],
+        { stdinFileDescriptor: handle.fd, timeoutMs: 3_000 },
+      );
+      expect(stdout).toContain("// Exec tests cover command execution");
+    } finally {
+      await handle.close();
+    }
   });
 
   it("can keep sensitive output out of verbose logs", async () => {

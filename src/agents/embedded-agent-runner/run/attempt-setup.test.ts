@@ -5,17 +5,66 @@ import type { ProviderRuntimePluginHandle } from "../../../plugins/provider-hook
 import type { EmbeddedRunAttemptParams } from "./types.js";
 
 const resolveProviderRuntimePluginHandle = vi.hoisted(() => vi.fn());
+const resolveSandboxContext = vi.hoisted(() => vi.fn(async () => null));
 
 vi.mock("../../../plugins/provider-hook-runtime.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../plugins/provider-hook-runtime.js")>()),
   resolveProviderRuntimePluginHandle,
 }));
 
+vi.mock("../../sandbox.js", () => ({ resolveSandboxContext }));
+
 import { prepareEmbeddedAttemptSetup } from "./attempt-setup.js";
 
 describe("prepareEmbeddedAttemptSetup", () => {
   beforeEach(() => {
     resolveProviderRuntimePluginHandle.mockReset();
+    resolveSandboxContext.mockClear();
+  });
+
+  it("prepares the default and session agent identities together", async () => {
+    const setup = await prepareEmbeddedAttemptSetup({
+      config: {
+        agents: {
+          list: [{ id: "main", default: true }, { id: "marketing" }],
+        },
+      },
+      modelId: "gpt-5.4",
+      provider: "openai",
+      runId: "run-prepared-agent-identities",
+      sessionId: "session-prepared-agent-identities",
+      sessionKey: "agent:marketing:main",
+      thinkLevel: "high",
+      timeoutMs: 30_000,
+      workspaceDir: path.join(os.tmpdir(), "openclaw-attempt-setup-agent-identities"),
+    } as unknown as EmbeddedRunAttemptParams);
+
+    expect(setup.defaultAgentId).toBe("main");
+    expect(setup.sessionAgentId).toBe("marketing");
+  });
+
+  it("passes the resolved skill snapshot into sandbox synchronization", async () => {
+    const skillsSnapshot = {
+      prompt: "skills",
+      skills: [{ name: "alpha" }],
+      resolvedSkills: [],
+      version: 42,
+    };
+
+    await prepareEmbeddedAttemptSetup({
+      config: {},
+      modelId: "gpt-5.4",
+      provider: "openai",
+      runId: "run-sandbox-skills",
+      sessionId: "session-sandbox-skills",
+      sessionKey: "agent:main:main",
+      skillsSnapshot,
+      thinkLevel: "high",
+      timeoutMs: 30_000,
+      workspaceDir: path.join(os.tmpdir(), "openclaw-attempt-setup-sandbox-skills"),
+    } as unknown as EmbeddedRunAttemptParams);
+
+    expect(resolveSandboxContext).toHaveBeenCalledWith(expect.objectContaining({ skillsSnapshot }));
   });
 
   it("reuses lifecycle metadata and the provider handle from the runtime plan", async () => {

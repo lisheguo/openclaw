@@ -22,11 +22,13 @@ import {
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { AgentEventPayload } from "../infra/agent-events.js";
+import { pruneMapToMaxSize } from "../infra/map-size.js";
 import { redactToolPayloadText } from "../logging/redact.js";
 import type {
   SessionEventSubscriberRegistry,
   SessionMessageSubscriberRegistry,
 } from "./server-chat-state.js";
+import { resolveSessionSubscriptionKey } from "./session-subscription-keys.js";
 
 const HEADLINE_MAX_CHARS = 120;
 const ASSESSMENT_MAX_CHARS = 320;
@@ -97,13 +99,7 @@ export function rememberSessionObserverRevisionFloor(
     floors.delete(sessionKey);
     floors.set(sessionKey, candidate);
   }
-  while (floors.size > MAX_REVISION_FLOORS) {
-    const oldest = floors.keys().next().value;
-    if (oldest === undefined) {
-      break;
-    }
-    floors.delete(oldest);
-  }
+  pruneMapToMaxSize(floors, MAX_REVISION_FLOORS);
 }
 
 export function rememberSessionObserverDormantRun(
@@ -123,10 +119,14 @@ export function rememberSessionObserverDormantRun(
     if (evicted) {
       // Evicted dormant runs keep revision continuity through the bounded floor
       // map so a later resume cannot restart below an already broadcast revision.
-      rememberSessionObserverRevisionFloor(floors, evicted.sessionKey, {
-        revision: evicted.revision,
-        previousDigest: evicted.previousDigest,
-      });
+      rememberSessionObserverRevisionFloor(
+        floors,
+        resolveSessionSubscriptionKey(evicted.sessionKey, evicted.agentId),
+        {
+          revision: evicted.revision,
+          previousDigest: evicted.previousDigest,
+        },
+      );
     }
   }
 }
@@ -150,13 +150,7 @@ export function markSessionObserverRunSuperseded(
 ): void {
   runs.delete(runId);
   runs.set(runId, observedAt);
-  while (runs.size > MAX_SUPERSEDED_RUNS) {
-    const oldest = runs.keys().next().value;
-    if (oldest === undefined) {
-      break;
-    }
-    runs.delete(oldest);
-  }
+  pruneMapToMaxSize(runs, MAX_SUPERSEDED_RUNS);
 }
 
 export function createDormantSessionObserverRun(
@@ -372,6 +366,7 @@ export async function synthesizeSessionObserverTerminalDigest(params: {
   const digest: SessionObserverDigest = {
     ...previous,
     sessionKey,
+    agentId,
     runId,
     health,
     revision: previous.revision + 1,

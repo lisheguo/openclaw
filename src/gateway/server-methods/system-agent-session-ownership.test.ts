@@ -2,27 +2,27 @@
 
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GATEWAY_CLIENT_CAPS } from "../../../packages/gateway-protocol/src/client-info.js";
 import { resetCommandQueueStateForTest } from "../../process/command-queue.test-support.js";
+import { SystemAgentWizardAnswerError } from "../../system-agent/chat-engine.js";
+import { evictOldestSystemAgentSession } from "./system-agent-session-ownership.js";
 import { systemAgentHandlers, type SystemAgentChatSession } from "./system-agent.js";
 import type { GatewayClient, GatewayRequestContext, RespondFn } from "./types.js";
 
-const setupInferenceMocks = vi.hoisted(() => ({ verifySetupInference: vi.fn() }));
-const delegatedInferenceMocks = vi.hoisted(() => ({
+const inferenceFallbackMocks = vi.hoisted(() => ({
   verifySystemAgentInferenceWithFallback: vi.fn(),
 }));
-
-vi.mock("../../system-agent/setup-inference.js", () => ({
-  verifySetupInference: setupInferenceMocks.verifySetupInference,
-}));
-vi.mock("../../system-agent/inference-fallback.js", () => ({
-  verifySystemAgentInferenceWithFallback:
-    delegatedInferenceMocks.verifySystemAgentInferenceWithFallback,
-}));
-vi.mock("../../system-agent/transcript-store.js", () => ({
+const transcriptStoreMocks = vi.hoisted(() => ({
   appendTranscriptReset: vi.fn(),
   appendTranscriptTurn: vi.fn(),
   readTranscriptTail: vi.fn(() => []),
 }));
+
+vi.mock("../../system-agent/inference-fallback.js", () => ({
+  verifySystemAgentInferenceWithFallback:
+    inferenceFallbackMocks.verifySystemAgentInferenceWithFallback,
+}));
+vi.mock("../../system-agent/transcript-store.js", () => transcriptStoreMocks);
 // Ownership tests exercise fresh-session creation; keep the caretaker greeting
 // deterministic so identity behavior is the only variable under test.
 vi.mock("../../system-agent/greeting.js", () => ({
@@ -38,10 +38,14 @@ vi.mock("../../system-agent/greeting.js", () => ({
 }));
 
 type FakeEngine = {
+  answerWizard: ReturnType<typeof vi.fn>;
   handle: ReturnType<typeof vi.fn>;
+  pollStep: ReturnType<typeof vi.fn>;
   seedHistory: ReturnType<typeof vi.fn>;
   historyLength: ReturnType<typeof vi.fn>;
   historySince: ReturnType<typeof vi.fn>;
+  hasPendingQrCode: ReturnType<typeof vi.fn>;
+  getPersistentApplySettlement: ReturnType<typeof vi.fn>;
   getPendingOperatorProposal: ReturnType<typeof vi.fn>;
   resolveOperatorApproval: ReturnType<typeof vi.fn>;
   dispose: ReturnType<typeof vi.fn>;
@@ -51,10 +55,16 @@ type FakeEngine = {
 
 function makeEngine(): FakeEngine {
   return {
+    answerWizard: vi.fn(async () => {
+      throw new SystemAgentWizardAnswerError("No hosted wizard is awaiting an answer.");
+    }),
     handle: vi.fn(async () => ({ text: "did the thing", action: "none" })),
+    pollStep: vi.fn(async () => ({ text: "still waiting", action: "none" })),
     seedHistory: vi.fn(),
     historyLength: vi.fn(() => 0),
     historySince: vi.fn(() => []),
+    hasPendingQrCode: vi.fn(() => false),
+    getPersistentApplySettlement: vi.fn(() => null),
     getPendingOperatorProposal: vi.fn(() => null),
     resolveOperatorApproval: vi.fn(async () => null),
     dispose: vi.fn(async () => undefined),
@@ -64,14 +74,23 @@ function makeEngine(): FakeEngine {
 }
 
 const createdEngines = vi.hoisted(() => [] as FakeEngine[]);
+const createdEngineOptions = vi.hoisted(() => [] as Array<{ supportsQrCode?: boolean }>);
 
-vi.mock("../../system-agent/chat-engine.js", () => ({
-  SystemAgentChatEngine: function FakeSystemAgentChatEngine(this: FakeEngine) {
-    const engine = makeEngine();
-    createdEngines.push(engine);
-    Object.assign(this, engine);
-  },
-}));
+vi.mock("../../system-agent/chat-engine.js", () => {
+  class FakeSystemAgentWizardAnswerError extends Error {}
+  return {
+    SystemAgentWizardAnswerError: FakeSystemAgentWizardAnswerError,
+    SystemAgentChatEngine: function FakeSystemAgentChatEngine(
+      this: FakeEngine,
+      options: { supportsQrCode?: boolean },
+    ) {
+      const engine = makeEngine();
+      createdEngines.push(engine);
+      createdEngineOptions.push(options);
+      Object.assign(this, engine);
+    },
+  };
+});
 vi.mock("../../system-agent/overview.js", () => ({
   formatSystemAgentStartupMessage: vi.fn(() => "welcome text"),
 }));
@@ -82,11 +101,13 @@ function makeClient(params: {
   connId: string;
   deviceId?: string;
   authenticatedUserId?: string;
+  supportsQrCode?: boolean;
 }): GatewayClient {
   return {
     connId: params.connId,
     connect: {
       client: { id: "openclaw-control-ui", mode: "webchat" },
+      ...(params.supportsQrCode ? { caps: [GATEWAY_CLIENT_CAPS.SYSTEM_AGENT_QR_CODE] } : {}),
       ...(params.deviceId ? { device: { id: params.deviceId } } : {}),
     },
     ...(params.authenticatedUserId ? { authenticatedUserId: params.authenticatedUserId } : {}),
@@ -102,12 +123,14 @@ function makeContext(sessions: Map<string, SystemAgentChatSession>): GatewayRequ
 function seededSession(params?: {
   engine?: FakeEngine;
   ownerKey?: string;
+  lastUsedAt?: number;
 }): SystemAgentChatSession {
   return {
     engine: params?.engine ?? makeEngine(),
     welcome: "welcome text",
-    lastUsedAt: 1,
+    lastUsedAt: params?.lastUsedAt ?? 1,
     ownerKey: params?.ownerKey ?? "device:device-test",
+    supportsQrCode: false,
   } as unknown as SystemAgentChatSession;
 }
 
@@ -132,10 +155,70 @@ async function callChat(
 
 beforeEach(() => {
   createdEngines.length = 0;
-  setupInferenceMocks.verifySetupInference.mockResolvedValue({ ok: true, binding: {} });
-  delegatedInferenceMocks.verifySystemAgentInferenceWithFallback.mockResolvedValue({
+  createdEngineOptions.length = 0;
+  inferenceFallbackMocks.verifySystemAgentInferenceWithFallback.mockResolvedValue({
     ok: true,
     binding: {},
+  });
+});
+
+describe("system-agent session eviction", () => {
+  it("preserves the caller's live QR when another session can be evicted", async () => {
+    const qrEngine = makeEngine();
+    qrEngine.hasPendingQrCode.mockReturnValue(true);
+    const normalEngine = makeEngine();
+    const sessions = new Map<string, SystemAgentChatSession>([
+      ["caller-qr", seededSession({ engine: qrEngine, ownerKey: "device:device-test" })],
+      ["normal", seededSession({ engine: normalEngine, ownerKey: "device:other" })],
+    ]);
+    for (let index = 2; index < 8; index += 1) {
+      sessions.set(`other-${index}`, seededSession({ ownerKey: `device:other-${index}` }));
+    }
+
+    await expect(evictOldestSystemAgentSession(sessions, makeContext(sessions))).resolves.toBe(
+      true,
+    );
+
+    expect(sessions.has("caller-qr")).toBe(true);
+    expect(sessions.has("normal")).toBe(false);
+    expect(qrEngine.dispose).not.toHaveBeenCalled();
+    expect(normalEngine.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("protects only the newest live QR per owner and refuses when all sessions are protected", async () => {
+    const sessions = new Map<string, SystemAgentChatSession>();
+    for (let index = 0; index < 8; index += 1) {
+      const engine = makeEngine();
+      engine.hasPendingQrCode.mockReturnValue(true);
+      sessions.set(
+        `qr-${index}`,
+        seededSession({
+          engine,
+          ownerKey: index < 2 ? "device:shared" : `device:${index}`,
+          lastUsedAt: index === 0 ? 1 : index,
+        }),
+      );
+    }
+
+    await expect(evictOldestSystemAgentSession(sessions, makeContext(sessions))).resolves.toBe(
+      true,
+    );
+    expect(sessions.has("qr-0")).toBe(false);
+    expect(sessions.has("qr-1")).toBe(true);
+
+    const allProtected = new Map(
+      Array.from({ length: 8 }, (_, index) => {
+        const engine = makeEngine();
+        engine.hasPendingQrCode.mockReturnValue(true);
+        return [
+          `protected-${index}`,
+          seededSession({ engine, ownerKey: `device:protected-${index}` }),
+        ] as const;
+      }),
+    );
+    await expect(
+      evictOldestSystemAgentSession(allProtected, makeContext(allProtected)),
+    ).resolves.toBe(false);
   });
 });
 
@@ -145,6 +228,37 @@ afterEach(() => {
 });
 
 describe("openclaw.chat session ownership", () => {
+  it("requires reset when a reconnect changes QR capabilities", async () => {
+    const sessions = new Map<string, SystemAgentChatSession>();
+    const context = makeContext(sessions);
+    const withoutQr = makeClient({ connId: "conn-old", deviceId: "device-owner" });
+    const withQr = makeClient({
+      connId: "conn-new",
+      deviceId: "device-owner",
+      supportsQrCode: true,
+    });
+
+    expect(await callChat(context, { sessionId: "capabilities" }, withoutQr)).toMatchObject({
+      ok: true,
+    });
+    expect(createdEngineOptions[0]).toMatchObject({ supportsQrCode: false });
+    const originalEngine = expectDefined(createdEngines[0], "original system-agent engine");
+    expect(
+      await callChat(context, { sessionId: "capabilities", message: "continue" }, withQr),
+    ).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_REQUEST", message: expect.stringContaining("capabilities changed") },
+    });
+    expect(originalEngine.handle).not.toHaveBeenCalled();
+
+    expect(
+      await callChat(context, { sessionId: "capabilities", reset: true }, withQr),
+    ).toMatchObject({ ok: true });
+    expect(originalEngine.dispose).toHaveBeenCalledOnce();
+    expect(sessions.get("capabilities")?.supportsQrCode).toBe(true);
+    expect(createdEngineOptions[1]).toMatchObject({ supportsQrCode: true });
+  });
+
   it("binds a new non-delegated session and rejects another principal", async () => {
     const sessions = new Map<string, SystemAgentChatSession>();
     const context = makeContext(sessions);
@@ -180,7 +294,10 @@ describe("openclaw.chat session ownership", () => {
     expect(turn).toMatchObject({
       ok: false,
       payload: undefined,
-      error: { code: "INVALID_REQUEST" },
+      error: {
+        code: "INVALID_REQUEST",
+        details: { code: "system_agent_session_invalidated" },
+      },
     });
     expect(approval).toMatchObject({
       ok: false,
@@ -196,6 +313,35 @@ describe("openclaw.chat session ownership", () => {
     expect(
       expectDefined(createdEngines[0], "created system-agent engine").dispose,
     ).not.toHaveBeenCalled();
+  });
+
+  it("preserves the live session and pending approval when reset persistence fails", async () => {
+    const engine = makeEngine();
+    const session = seededSession({ engine });
+    session.pendingApproval = { id: "approval-1", proposalHash: "proposal-1" };
+    const sessions = new Map<string, SystemAgentChatSession>([["owned-session", session]]);
+    const expire = vi.fn();
+    const context = {
+      ...makeContext(sessions),
+      systemAgentApprovalManager: { expire },
+    } as unknown as GatewayRequestContext;
+    transcriptStoreMocks.appendTranscriptReset.mockImplementationOnce(() => {
+      throw new Error("transcript store unavailable");
+    });
+
+    await expect(callChat(context, { sessionId: "owned-session", reset: true })).rejects.toThrow(
+      "transcript store unavailable",
+    );
+
+    expect(transcriptStoreMocks.appendTranscriptReset).toHaveBeenCalledOnce();
+    expect(sessions.get("owned-session")).toBe(session);
+    expect(session.pendingApproval).toEqual({
+      id: "approval-1",
+      proposalHash: "proposal-1",
+    });
+    expect(expire).not.toHaveBeenCalled();
+    expect(engine.dispose).not.toHaveBeenCalled();
+    expect(inferenceFallbackMocks.verifySystemAgentInferenceWithFallback).not.toHaveBeenCalled();
   });
 
   it("lets the same authenticated principal resume after reconnecting", async () => {
@@ -261,6 +407,10 @@ describe("openclaw.chat session ownership", () => {
       { sessionId: "delegated", delegation },
       makeClient({ connId: "conn-owner", deviceId: "device-owner" }),
     );
+    expect(inferenceFallbackMocks.verifySystemAgentInferenceWithFallback).toHaveBeenCalledWith({
+      requestingAgentId: "main",
+      runtime: expect.anything(),
+    });
     const handle = expectDefined(createdEngines[0], "created delegated engine").handle;
 
     const resumed = await callChat(
@@ -275,6 +425,7 @@ describe("openclaw.chat session ownership", () => {
 
     expect(resumed.ok).toBe(true);
     expect(handle).toHaveBeenCalledWith("continue");
+    expect(inferenceFallbackMocks.verifySystemAgentInferenceWithFallback).toHaveBeenCalledOnce();
   });
 
   it("rejects delegated reuse of a non-delegated session", async () => {
@@ -313,6 +464,45 @@ describe("openclaw.chat session responses", () => {
 
     expect(engine.handle).toHaveBeenCalledWith("status");
     expect(call.payload).toMatchObject({ reply: "did the thing", action: "none" });
+  });
+
+  it("rejects a structured answer without an active chat session", async () => {
+    const call = await callChat(makeContext(new Map()), {
+      sessionId: "missing",
+      wizardAnswer: { stepId: "channel", value: "twitch" },
+    });
+
+    expect(call).toMatchObject({
+      ok: false,
+      error: {
+        code: "INVALID_REQUEST",
+        details: { code: "system_agent_session_invalidated" },
+      },
+    });
+    expect(inferenceFallbackMocks.verifySystemAgentInferenceWithFallback).not.toHaveBeenCalled();
+  });
+
+  it("polls only an existing step owned by the caller", async () => {
+    const engine = makeEngine();
+    const sessions = new Map<string, SystemAgentChatSession>([["s1", seededSession({ engine })]]);
+
+    const call = await callChat(makeContext(sessions), { sessionId: "s1", pollStepId: "qr-1" });
+
+    expect(engine.pollStep).toHaveBeenCalledWith("qr-1");
+    expect(call.payload).toMatchObject({ reply: "still waiting", action: "none" });
+  });
+
+  it("rejects a structured answer when the active session has no hosted wizard", async () => {
+    const engine = makeEngine();
+    const sessions = new Map<string, SystemAgentChatSession>([["s1", seededSession({ engine })]]);
+
+    const call = await callChat(makeContext(sessions), {
+      sessionId: "s1",
+      wizardAnswer: { stepId: "stale", value: "twitch" },
+    });
+
+    expect(call).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+    expect(transcriptStoreMocks.appendTranscriptTurn).not.toHaveBeenCalled();
   });
 
   it("forwards sensitive-input metadata", async () => {

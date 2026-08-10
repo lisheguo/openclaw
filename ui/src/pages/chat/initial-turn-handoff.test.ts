@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createInitialUserMessageHandoff } from "../../app/initial-user-message-handoff.ts";
 import {
   admitInitialUserMessageHandoff,
@@ -7,6 +7,34 @@ import {
 } from "./initial-turn-handoff.ts";
 
 describe("initial user message handoff", () => {
+  it("adopts a late accepted prompt once through the observable handoff", () => {
+    const sessionKey = "agent:main:late-accepted";
+    const client = {};
+    const handoff = createInitialUserMessageHandoff();
+    const host = { chatMessages: [] as unknown[], client };
+    const listener = vi.fn(() => admitInitialUserMessageHandoff(handoff, host, sessionKey));
+    const unsubscribe = handoff.subscribe(listener);
+
+    prepareInitialUserMessageHandoff(
+      handoff,
+      sessionKey,
+      { text: "accepted after route mount", createdAt: 123 },
+      client,
+      { messageId: "late-message", messageSeq: 1 },
+    );
+    prepareInitialUserMessageHandoff(
+      handoff,
+      sessionKey,
+      { text: "accepted after route mount", createdAt: 123 },
+      client,
+      { messageId: "late-message", messageSeq: 1 },
+    );
+
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(host.chatMessages).toHaveLength(1);
+    unsubscribe();
+  });
+
   it("reprojects an accepted first prompt across state replacement until history owns it", () => {
     const sessionKey = "agent:main:new-session";
     const client = {};
@@ -187,6 +215,46 @@ describe("initial user message handoff", () => {
         },
       },
     ]);
+  });
+
+  it("reconciles an attachment-only first prompt by visible content without a sequence", () => {
+    const sessionKey = "agent:main:image-session";
+    const client = {};
+    const handoff = createInitialUserMessageHandoff();
+    prepareInitialUserMessageHandoff(
+      handoff,
+      sessionKey,
+      {
+        text: "",
+        attachments: [
+          {
+            id: "image-1",
+            mimeType: "image/png",
+            fileName: "image.png",
+            sizeBytes: 68,
+            dataUrl: "data:image/png;base64,iVBORw0KGgo=",
+          },
+        ],
+        createdAt: 123,
+      },
+      client,
+    );
+
+    const projectedSession = { chatMessages: [] as unknown[], client };
+    expect(admitInitialUserMessageHandoff(handoff, projectedSession, sessionKey)).toBe(true);
+    const projected = projectedSession.chatMessages[0] as { content: unknown };
+    const persisted = { role: "user", content: projected.content };
+    const createdSession = { chatMessages: [persisted] as unknown[], client };
+
+    expect(
+      reconcileInitialUserMessageHandoff(handoff, createdSession, sessionKey, [persisted], false),
+    ).toBe(true);
+    expect(createdSession.chatMessages).toEqual([
+      { role: "user", content: projected.content, timestamp: 123, __openclaw: {} },
+    ]);
+    expect(admitInitialUserMessageHandoff(handoff, { chatMessages: [], client }, sessionKey)).toBe(
+      false,
+    );
   });
 
   it("keeps a pending prompt across reconnects from the same browser client", () => {

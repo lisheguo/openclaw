@@ -2,15 +2,40 @@ import type {
   SessionEventSubscriberRegistry,
   SessionMessageSubscriberRegistry,
 } from "./server-chat-state.js";
+import { resolveSessionSubscriptionKeys } from "./session-subscription-keys.js";
 
 export function createSessionObserverAudience(params: {
   subscribers: SessionMessageSubscriberRegistry;
   sessionEventSubscribers?: SessionEventSubscriberRegistry;
   isVisible: (connId: string) => boolean;
+  getDefaultAgentId: () => string;
 }) {
+  const messageSubscriberKeys = (sessionKey: string, agentId: string): string[] => {
+    return resolveSessionSubscriptionKeys(sessionKey, agentId, params.getDefaultAgentId());
+  };
+
+  const messageRecipients = (sessionKey: string, agentId: string): Set<string> => {
+    const recipients = new Set<string>();
+    for (const key of messageSubscriberKeys(sessionKey, agentId)) {
+      for (const connId of params.subscribers.get(key)) {
+        recipients.add(connId);
+      }
+    }
+    return recipients;
+  };
+
   return {
-    has(sessionKey: string): boolean {
-      for (const connId of params.subscribers.get(sessionKey)) {
+    deliveryOptions(sessionKey: string, agentId: string) {
+      return {
+        agentId,
+        dropIfSlow: true,
+        sessionKeys: messageSubscriberKeys(sessionKey, agentId),
+        sessionSubscriptionVerified: true,
+      };
+    },
+
+    has(sessionKey: string, agentId: string): boolean {
+      for (const connId of messageRecipients(sessionKey, agentId)) {
         if (params.isVisible(connId)) {
           return true;
         }
@@ -23,8 +48,8 @@ export function createSessionObserverAudience(params: {
       return false;
     },
 
-    recipients(sessionKey: string): ReadonlySet<string> {
-      const recipients = new Set(params.subscribers.get(sessionKey));
+    recipients(sessionKey: string, agentId: string): ReadonlySet<string> {
+      const recipients = messageRecipients(sessionKey, agentId);
       for (const connId of params.sessionEventSubscribers?.getAll() ?? []) {
         if (params.isVisible(connId)) {
           recipients.add(connId);
@@ -33,8 +58,8 @@ export function createSessionObserverAudience(params: {
       return recipients;
     },
 
-    criticalRecipients(sessionKey: string): ReadonlySet<string> {
-      const recipients = new Set(params.subscribers.get(sessionKey));
+    criticalRecipients(sessionKey: string, agentId: string): ReadonlySet<string> {
+      const recipients = messageRecipients(sessionKey, agentId);
       // sessions.subscribe is operator.read-gated. Critical fanout drops only
       // Control UI visibility, preserving the existing subscription boundary.
       for (const connId of params.sessionEventSubscribers?.getAll() ?? []) {

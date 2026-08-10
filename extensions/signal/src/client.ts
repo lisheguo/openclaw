@@ -6,7 +6,6 @@ import { generateSecureUuid } from "openclaw/plugin-sdk/core";
 import { formatErrorMessage, toErrorObject } from "openclaw/plugin-sdk/error-runtime";
 import { resolveTimerTimeoutMs } from "openclaw/plugin-sdk/number-runtime";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
-import type { SignalNativeAccountBinding } from "./transport-detection.js";
 
 export type SignalRpcOptions = {
   baseUrl: string;
@@ -250,7 +249,6 @@ export async function signalAccountCheck(
   baseUrl: string,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   account?: string,
-  accountBinding: SignalNativeAccountBinding = "selected-account",
 ): Promise<{ ok: boolean; status?: number | null; error?: string | null }> {
   if (!account) {
     return {
@@ -289,10 +287,6 @@ export async function signalAccountCheck(
     return { ok: true, status: 200, error: null };
   } catch (error) {
     if (error instanceof SignalRpcRequestError && error.rpcCode === -32601) {
-      if (accountBinding === "spawned-bound-account") {
-        // This mode is only used for a daemon OpenClaw just spawned with the selected account.
-        return { ok: true, status: 200, error: null };
-      }
       return {
         ok: false,
         status: 200,
@@ -416,6 +410,7 @@ export async function streamSignalEvents(params: {
   abortSignal?: AbortSignal;
   timeoutMs?: number;
   onEvent: (event: SignalSseEvent) => unknown;
+  onStreamOpen?: () => void;
 }): Promise<void> {
   const url = resolveSignalEndpointUrl(params.baseUrl, "/api/v1/events");
   if (params.account) {
@@ -427,6 +422,7 @@ export async function streamSignalEvents(params: {
     params.abortSignal,
     params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   );
+  params.onStreamOpen?.();
   const decoder = new TextDecoder();
   let buffer = "";
   let bufferedBytes = 0;

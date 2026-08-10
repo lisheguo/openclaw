@@ -4,12 +4,10 @@
  * These values cross the WebSocket handshake boundary, so additions must stay
  * aligned with protocol schemas and server policy checks.
  */
+import { normalizeOptionalProtocolString } from "./protocol-value-normalization.js";
+
 function normalizeOptionalLowercaseString(raw?: string | null): string | undefined {
-  if (typeof raw !== "string") {
-    return undefined;
-  }
-  const normalized = raw.trim().toLowerCase();
-  return normalized || undefined;
+  return normalizeOptionalProtocolString(raw)?.toLowerCase();
 }
 
 /** Canonical client ids accepted in gateway hello/connect payloads. */
@@ -86,6 +84,7 @@ export const GATEWAY_CLIENT_CAPS = {
   RUN_TOOL_BINDINGS: "run-tool-bindings",
   SESSION_SCOPED_EVENTS: "session-scoped-events",
   PLUGIN_APPROVALS: "plugin-approvals",
+  SYSTEM_AGENT_QR_CODE: "system-agent-qr-code",
   TASK_SUGGESTIONS: "task-suggestions",
   TERMINAL_OFFSET_SEQ: "terminal-offset-seq",
   TOOL_EVENTS: "tool-events",
