@@ -205,10 +205,7 @@ describe("wizard setup ownership", () => {
       context,
     } as never);
     expect(admittedRespond.mock.calls[0]?.[1]).toMatchObject({ status: "running" });
-    const session = expectDefined(
-      [...tracker.wizardSessions.values()][0],
-      "admitted classic setup session",
-    );
+    expectDefined([...tracker.wizardSessions.values()][0], "admitted classic setup session");
     await cancelWizardSessions(tracker.wizardSessions);
   });
 
