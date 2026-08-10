@@ -269,7 +269,7 @@ describe("resolveApprovalOverGateway", () => {
       },
     ) as GatewayNativeApprovalRuntime["request"];
     const runtime = {
-      request: scopedRequest,
+      request: scopedRequest as GatewayNativeApprovalRuntime["request"],
       requestRoute: vi.fn(),
       routeCoordinator: { doesAccountHandleRequest: () => true } as never,
       subscribe: vi.fn(),
