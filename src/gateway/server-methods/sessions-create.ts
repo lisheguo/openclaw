@@ -34,6 +34,7 @@ import { resolveSessionStoreAgentId } from "../session-store-key.js";
 import { readSessionMessageCountAsync } from "../session-transcript-readers.js";
 import { loadSessionEntryReadOnly, resolveGatewaySessionStoreTarget } from "../session-utils.js";
 import { resolveSessionPatchModelSelection } from "../sessions-patch.js";
+import { hasActiveAgentRuntimeAuthority } from "./agent-runtime-authority.js";
 import { chatHandlers } from "./chat.js";
 import { resolveSessionCatalogCreateTarget } from "./session-catalog.js";
 import { emitSessionsChanged } from "./session-change-event.js";
@@ -43,7 +44,12 @@ import {
 } from "./session-create-initial-turn.js";
 import { resolveOperatorSessionCreation } from "./session-creation-provenance.js";
 import { sessionLog } from "./sessions-shared.js";
-import type { GatewayRequestHandlers } from "./types.js";
+import type {
+  GatewayClient,
+  GatewayRequestContext,
+  GatewayRequestHandlers,
+  RespondFn,
+} from "./types.js";
 import { assertValidParams } from "./validation.js";
 import { resolveWorkspacePathContainment } from "./workspace-path-containment.js";
 
@@ -70,6 +76,22 @@ async function prepareOperatorSessionDiffBaseline(params: {
     sessionKey: params.sessionKey,
     storePath: params.storePath,
   });
+}
+
+function ensureActiveAgentRuntimeAuthority(params: {
+  client: GatewayClient | null;
+  context: GatewayRequestContext;
+  respond: RespondFn;
+}): boolean {
+  if (hasActiveAgentRuntimeAuthority(params.client, params.context)) {
+    return true;
+  }
+  params.respond(
+    false,
+    undefined,
+    errorShape(ErrorCodes.INVALID_REQUEST, "agent runtime authority is no longer active"),
+  );
+  return false;
 }
 
 export const sessionCreateHandlers: GatewayRequestHandlers = {
@@ -378,6 +400,9 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
               sessionLog.warn(`worktree title generation failed: ${formatErrorMessage(error)}`);
             }
           }
+          if (!ensureActiveAgentRuntimeAuthority({ client, context, respond })) {
+            return;
+          }
           sessionWorktree = await managedWorktrees.create({
             repoRoot: workspace,
             ownerKind: "session",
@@ -475,6 +500,9 @@ export const sessionCreateHandlers: GatewayRequestHandlers = {
         );
       }
     };
+    if (!ensureActiveAgentRuntimeAuthority({ client, context, respond })) {
+      return;
+    }
     const created = await createGatewaySession({
       cfg,
       key: sessionKey,
