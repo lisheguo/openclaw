@@ -99,7 +99,9 @@ describe("learn command", () => {
     await handleLearnCommand(params, true);
     const instruction = (params.ctx as { BodyForAgent?: string }).BodyForAgent ?? "";
 
-    expect(instruction).toContain('`skill_workshop` with action `"create"`');
+    expect(instruction).toContain(
+      "Use `skill_workshop` to inspect pending proposals and read any relevant live skill.",
+    );
     expect(instruction).toContain("first ~60 characters");
     expect(instruction).toContain("never invent flags, commands, paths, APIs");
   });
