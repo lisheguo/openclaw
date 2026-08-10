@@ -151,6 +151,8 @@ and Gateway-backed install/update paths. CLI plugin and skill commands can
 acknowledge a warning interactively by typing the target name with the same
 copy as suspicious ClawHub releases; policy is then re-evaluated. Reviewed
 non-interactive commands can use `--acknowledge-install-policy-warning`.
+That flag is consumed by the first warning in one command; a later warning
+fails closed and requires interactive review.
 Gateway-backed and automatic installs remain blocked on
 warnings because they have no operator-confirmation flow. The deprecated
 `--dangerously-force-unsafe-install` flag remains a no-op. Plugin
