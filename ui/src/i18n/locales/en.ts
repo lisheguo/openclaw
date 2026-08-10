@@ -4851,6 +4851,7 @@ export const en: TranslationMap = {
       steer: "Steer",
       steerQueuedMessage: "Steer queued message",
       removeQueuedMessage: "Remove queued message",
+      reorderQueuedMessage: "Reorder queued message with the arrow keys",
       states: {
         steering: "Steering",
         applyingSettings: "Applying chat settings",

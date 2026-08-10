@@ -1,5 +1,6 @@
 import { GatewayRequestError } from "../../api/gateway.ts";
 import { t } from "../../i18n/index.ts";
+import { isMovableChatQueueItem, reorderChatQueueItems } from "../../lib/chat/chat-queue-order.ts";
 import type { ChatAttachment, ChatQueueItem } from "../../lib/chat/chat-types.ts";
 import { generateUUID } from "../../lib/uuid.ts";
 import { loadChatBranches, loadChatHistory, type ChatState } from "./chat-history.ts";
@@ -11,7 +12,10 @@ import {
 import {
   admitQueuedMessageForSession,
   isVolatileQueuedMessage,
+  readChatQueueForScope,
+  readQueuedMessageById,
   updateQueuedMessage,
+  updateQueuedMessageForSession,
   updateVolatileQueuedMessage,
 } from "./chat-queue.ts";
 import type { ChatHost } from "./chat-send-contract.ts";
@@ -128,6 +132,35 @@ export const flushChatQueueForEvent = (host: ChatHost) =>
   flushStoredChatOutbox(host, chatOutboxDrainDependencies);
 
 export const retryReconnectableQueuedChatSends = resumeStoredChatOutboxes;
+
+/**
+ * Moves a queued row to `toIndex` within the movable rows of its own outbox.
+ * Each changed row is persisted individually so a partial storage failure
+ * leaves a readable queue and a visible error instead of a silent reshuffle.
+ */
+export function moveQueuedChatMessage(host: ChatHost, id: string, toIndex: number): void {
+  const item = readQueuedMessageById(host, id);
+  if (!item || !isMovableChatQueueItem(item)) {
+    return;
+  }
+  const sessionKey = item.sessionKey ?? host.sessionKey;
+  const movable = readChatQueueForScope(host, sessionKey, item.agentId).filter(
+    isMovableChatQueueItem,
+  );
+  for (const moved of reorderChatQueueItems(movable, id, toIndex)) {
+    const applied = updateQueuedMessageForSession(
+      host,
+      moved.sessionKey ?? sessionKey,
+      moved.id,
+      (entry) => ({ ...entry, orderKey: moved.orderKey }),
+      moved.agentId,
+    );
+    if (!applied) {
+      setChatError(host, OFFLINE_QUEUE_STORAGE_ERROR);
+      return;
+    }
+  }
+}
 
 export async function retryQueuedChatMessage(host: ChatHost, id: string) {
   const item = host.chatQueue.find((entry) => entry.id === id);
