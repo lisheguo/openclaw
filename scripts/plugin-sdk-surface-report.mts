@@ -255,7 +255,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // -2: remove unused WhatsApp-specific ack policy exports from channel-feedback.
       // -7: retire unused and duplicate inbound-dispatch compatibility exports.
       // +7: restore still-existing deprecated inbound-dispatch compatibility re-exports.
-      4848,
+      // +2: add canonical timestamp and object-record coercion exports, net of retired aliases.
+      4850,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -312,7 +313,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // -1: remove the unused WhatsApp-specific ack policy helper.
       // -10: collapse inbound-dispatch callable aliases and wrappers.
       // +7: restore still-existing deprecated inbound-dispatch callable re-exports.
-      2918,
+      // +2: add canonical timestamp and object-record coercion exports, net of retired aliases.
+      2920,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
