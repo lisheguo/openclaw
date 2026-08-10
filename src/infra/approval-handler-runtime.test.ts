@@ -21,6 +21,7 @@ const TEST_HANDLER_PARAMS = {
   clientDisplayName: "Test Approval Handler",
   channel: "test",
   channelLabel: "Test",
+  accountId: "default",
   cfg: { channels: {} } as never,
 } as const;
 
@@ -75,7 +76,10 @@ function makeNativeApprovalCapability(
         ? { resolveApproverDmTargets: params.resolveApproverDmTargets }
         : {}),
     },
-    nativeRuntime: createApprovalNativeRuntimeAdapterStubs(params),
+    nativeRuntime: {
+      ...createApprovalNativeRuntimeAdapterStubs(params),
+      eventKinds: ["exec", "plugin"],
+    },
   };
 }
 
@@ -154,6 +158,7 @@ describe("createChannelApprovalHandlerFromCapability", () => {
       request: {
         title: "Plugin approval",
         description: "Allow the plugin action",
+        turnSourceAccountId: TEST_HANDLER_PARAMS.accountId,
         turnSourceChannel: "test",
         turnSourceTo: "origin-chat",
       },
@@ -177,7 +182,10 @@ describe("createChannelApprovalHandlerFromCapability", () => {
     const resolveApprovalKind = vi.fn().mockReturnValue("plugin");
     const shouldHandle = vi.fn().mockReturnValue(true);
     const runtime = await createTestApprovalHandler(
-      makeNativeApprovalCapability({ resolveApprovalKind, shouldHandle }),
+      makeNativeApprovalCapability({
+        resolveApprovalKind,
+        shouldHandle,
+      }),
     );
     const approvalRuntime = expectApprovalRuntime(runtime);
     const request = {
@@ -186,6 +194,8 @@ describe("createChannelApprovalHandlerFromCapability", () => {
       request: {
         title: "Plugin approval",
         description: "Allow the plugin action",
+        turnSourceAccountId: TEST_HANDLER_PARAMS.accountId,
+        turnSourceChannel: "test",
       },
     } as never;
 
