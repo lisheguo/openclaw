@@ -2143,7 +2143,7 @@ describe("Codex app-server dynamic tool build", () => {
           type: "object",
           properties: {
             message: { type: "string" },
-            ...(options.sourceReplyDeliveryMode === "message_tool_only"
+            ...(options?.sourceReplyDeliveryMode === "message_tool_only"
               ? { final: { type: "boolean" } }
               : {}),
           },
