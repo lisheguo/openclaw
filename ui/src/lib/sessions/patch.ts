@@ -8,6 +8,12 @@ export type SessionToolOverrides = {
 };
 
 export type SessionPatch = {
+  /**
+   * Identity of the row the operator acted on, captured when they acted. The
+   * Gateway refuses the patch when the stored entry no longer carries it, so a
+   * mutation started before a replacement cannot land on the successor session.
+   */
+  expectedSessionId?: string;
   label?: string | null;
   category?: string | null;
   boardFace?: "chat" | "dashboard";

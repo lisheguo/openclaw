@@ -1,3 +1,4 @@
+import { ErrorCodes, GatewayErrorDetailCodes } from "@openclaw/gateway-client/browser";
 import { describe, expect, it, vi } from "vitest";
 import type {
   SessionCatalog,
@@ -134,8 +135,8 @@ describe("AppSidebar multi-select", () => {
     await waitForFast(() => expect(harness.patchMany).toHaveBeenCalledOnce());
     expect(harness.patchMany).toHaveBeenCalledWith(
       [
-        { key: "agent:main:a", agentId: "main" },
-        { key: "agent:main:b", agentId: "main" },
+        { key: "agent:main:a", agentId: "main", expectedSessionId: "session-agent:main:a" },
+        { key: "agent:main:b", agentId: "main", expectedSessionId: "session-agent:main:b" },
       ],
       { archived: true },
     );
@@ -157,8 +158,8 @@ describe("AppSidebar multi-select", () => {
     await waitForFast(() => expect(harness.patchMany).toHaveBeenCalledOnce());
     expect(harness.patchMany).toHaveBeenCalledWith(
       [
-        { key: "agent:main:a", agentId: "main" },
-        { key: "agent:main:b", agentId: "main" },
+        { key: "agent:main:a", agentId: "main", expectedSessionId: "session-agent:main:a" },
+        { key: "agent:main:b", agentId: "main", expectedSessionId: "session-agent:main:b" },
       ],
       { unread: true },
     );
@@ -184,13 +185,13 @@ describe("AppSidebar multi-select", () => {
     expect(harness.patch).toHaveBeenNthCalledWith(
       1,
       "agent:main:a",
-      { archived: true },
+      { archived: true, expectedSessionId: "session-agent:main:a" },
       { agentId: "main", deferListRefresh: true },
     );
     expect(harness.patch).toHaveBeenNthCalledWith(
       2,
       "agent:main:b",
-      { archived: true },
+      { archived: true, expectedSessionId: "session-agent:main:b" },
       { agentId: "main", deferListRefresh: true },
     );
     expect(harness.patchMany).not.toHaveBeenCalled();
@@ -221,13 +222,13 @@ describe("AppSidebar multi-select", () => {
     expect(harness.patch).toHaveBeenNthCalledWith(
       1,
       "agent:main:a",
-      { archived: true },
+      { archived: true, expectedSessionId: "session-agent:main:a" },
       { agentId: "main", deferListRefresh: true },
     );
     expect(harness.patch).toHaveBeenNthCalledWith(
       2,
       "agent:main:b",
-      { archived: true },
+      { archived: true, expectedSessionId: "session-agent:main:b" },
       { agentId: "main", deferListRefresh: true },
     );
     expect(request.mock.calls.filter(([method]) => method === "sessions.patchMany")).toHaveLength(
@@ -277,6 +278,36 @@ describe("AppSidebar multi-select", () => {
     const menu = await sessionMenu(sidebar);
     expect(menu.selectionCount).toBe(1);
     expect(menu.querySelector('[data-shortcut="r"]')).not.toBeNull();
+  });
+});
+
+describe("AppSidebar replaced session feedback", () => {
+  it("states a replaced session instead of the Gateway's retry copy", async () => {
+    const { sidebar, harness } = await mountMultiSelect(["sessions.patch"]);
+    harness.patch.mockRejectedValueOnce(
+      new GatewayRequestError({
+        code: ErrorCodes.INVALID_REQUEST,
+        message: "Session agent:main:a changed before patch. Retry.",
+        details: { code: GatewayErrorDetailCodes.SESSION_CHANGED },
+      }),
+    );
+
+    openContextMenu(sidebar, "agent:main:a");
+    await sidebar.updateComplete;
+    (await sessionMenu(sidebar)).querySelector<HTMLElement>('[data-shortcut="p"]')?.click();
+
+    // The row proved its target, the Gateway refused it, and the operator is told
+    // what to do next instead of to retry what can never succeed.
+    await waitForFast(() =>
+      expect(sidebar.querySelector("[data-sidebar-session-error]")?.textContent).toContain(
+        "Not applied: this session was replaced. Select it again.",
+      ),
+    );
+    expect(harness.patch).toHaveBeenCalledExactlyOnceWith(
+      "agent:main:a",
+      { pinned: true, expectedSessionId: "session-agent:main:a" },
+      { agentId: "main" },
+    );
   });
 });
 

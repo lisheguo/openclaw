@@ -6,7 +6,9 @@ import {
 } from "../../../packages/gateway-protocol/src/schema/sessions-patch.js";
 import { SESSION_ARCHIVE_REQUEST_OPTIONS } from "../../../src/shared/session-archive-timeout.ts";
 import { GatewayRequestError } from "../api/gateway.ts";
+import { t } from "../i18n/index.ts";
 import { formatUiError } from "../lib/format-error.ts";
+import { isSessionChangedError } from "../lib/gateway-errors.ts";
 import { readSessionMethodAccess } from "../lib/session-method-access.ts";
 import { parseAgentSessionKey } from "../lib/sessions/session-key.ts";
 import type {
@@ -18,8 +20,14 @@ import type { SessionOrganizerControllerHost } from "./session-organizer-control
 
 export type SessionActionRow = Pick<
   SidebarRecentSession,
-  "key" | "label" | "pinned" | "archived" | "active"
+  "key" | "sessionId" | "label" | "pinned" | "archived" | "active"
 >;
+
+export type SessionRowsPatchResult = {
+  rows: SessionActionRow[];
+  /** Rows the Gateway refused because their session was replaced; a resend cannot change that. */
+  sessionChanged: number;
+};
 
 export type SessionActionHost = Pick<
   SessionOrganizerControllerHost,
@@ -90,9 +98,9 @@ export async function patchSessionRows(
   scope: SidebarSessionMutationScope,
   options: {
     deferListRefresh?: boolean;
-    fallback?: () => Promise<SessionActionRow[] | null>;
+    fallback?: () => Promise<SessionRowsPatchResult | null>;
   } = {},
-): Promise<SessionActionRow[] | null> {
+): Promise<SessionRowsPatchResult | null> {
   const dispatched: Array<{
     rows: readonly SessionActionRow[];
     result: SessionsPatchManyResult;
@@ -107,6 +115,9 @@ export async function patchSessionRows(
       targets: chunkRows.map((row) => ({
         key: row.key,
         agentId: sessionRowAgentId(row, scope),
+        // Per-target identity: the batch refuses only the rows whose session was
+        // replaced, and still applies the rest.
+        ...(row.sessionId ? { expectedSessionId: row.sessionId } : {}),
       })),
       patch,
     };
@@ -163,10 +174,17 @@ export async function patchSessionRows(
     return null;
   }
   const errors: string[] = [];
+  let sessionChanged = 0;
   const successful = dispatched.flatMap(({ rows: chunkRows, result }) =>
     result.outcomes.flatMap((outcome, index) => {
       if (!outcome.ok) {
-        errors.push(`${outcome.key}: ${outcome.error.message}`);
+        // Replaced targets get one counted sentence instead of a per-key echo of
+        // the Gateway's copy: the operator needs how many and what to do next.
+        if (isSessionChangedError(outcome.error)) {
+          sessionChanged += 1;
+        } else {
+          errors.push(`${outcome.key}: ${outcome.error.message}`);
+        }
         return [];
       }
       const row = chunkRows[index];
@@ -176,6 +194,13 @@ export async function patchSessionRows(
       return row ? [row] : [];
     }),
   );
+  if (sessionChanged > 0) {
+    errors.unshift(
+      sessionChanged === 1
+        ? t("sessionsView.sessionReplaced")
+        : t("sessionsView.sessionsReplaced", { count: String(sessionChanged) }),
+    );
+  }
   const terminalErrorMessage = terminalError === null ? "" : formatUiError(terminalError);
   if (terminalErrorMessage) {
     errors.push(terminalErrorMessage);
@@ -183,5 +208,5 @@ export async function patchSessionRows(
   if (errors.length > 0) {
     host.sessionData.publishSessionMutationError(scope, errors.join("; "));
   }
-  return successful;
+  return { rows: successful, sessionChanged };
 }

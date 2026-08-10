@@ -28,6 +28,7 @@ import { renderSettingsWorkspace } from "../../components/settings-workspace.ts"
 import { t } from "../../i18n/index.ts";
 import { watchAgentScope } from "../../lib/agents/index.ts";
 import { openEditor } from "../../lib/editor-links.ts";
+import { isSessionChangedError } from "../../lib/gateway-errors.ts";
 import { isGatewayMethodAdvertised } from "../../lib/gateway-methods.ts";
 import { openExternalUrlSafe } from "../../lib/open-external-url.ts";
 import { isWorkboardEnabledInConfigSnapshot } from "../../lib/plugin-activation.ts";
@@ -43,6 +44,7 @@ import {
   filterSessionRows,
   scopedAgentParamsForSession,
   type SessionArchivedFilter,
+  type SessionPatch,
 } from "../../lib/sessions/index.ts";
 import { fetchPagedSessionRows } from "../../lib/sessions/paged-session-rows.ts";
 import {
@@ -71,7 +73,7 @@ import {
 } from "./agent-scope.ts";
 import { rememberSessionCustomGroup, sessionCategoryNames } from "./custom-groups.ts";
 import { loadStoredGroupBy, parseFilterInteger, saveStoredGroupBy } from "./page-state.ts";
-import { renderSessions, type SessionsProps, type TranscriptSearchState } from "./view.ts";
+import { renderSessions, type TranscriptSearchState } from "./view.ts";
 
 const SESSIONS_DOCS_URL = "https://docs.openclaw.ai/concepts/session";
 
@@ -94,10 +96,12 @@ type SessionsPageRequestScope = {
   client: GatewayBrowserClient;
 };
 
-type SessionsPageMutationResult = "completed" | "failed" | "stale";
+/** `session-changed` is terminal: the Gateway refused the patch because the target session was replaced. */
+type SessionsPageMutationResult = "completed" | "failed" | "stale" | "session-changed";
 
 /** Type-only, so the dialog itself stays behind its lazy boundary. */
 type InputDialogOpener = (typeof import("../../components/input-dialog.ts"))["showInputDialog"];
+type InputDialogSubmitOutcome = import("../../components/input-dialog.ts").InputDialogSubmitOutcome;
 
 type SessionDeleteRow = Pick<GatewaySessionRow, "key" | "archived">;
 
@@ -1066,6 +1070,9 @@ class SessionsPage extends OpenClawLightDomElement {
   }
 
   private async requestNewCategory(sessionKey?: string) {
+    // Identity is read now, with the row the operator acted on — after the catalog
+    // write a refresh may have repaged or replaced it.
+    const expectedSessionId = sessionKey ? this.sessionIdForKey(sessionKey) : undefined;
     await this.withDialogLifecycle(async (signal) => {
       const showInputDialog = await this.loadInputDialog();
       await showInputDialog?.({
@@ -1074,9 +1081,13 @@ class SessionsPage extends OpenClawLightDomElement {
         label: t("sessionsView.newGroupPrompt"),
         submitLabel: t("sessionsView.newGroupCreate"),
         requireValue: true,
-        submit: (name) => this.writeNewCategory(name, sessionKey),
+        submit: (name) => this.writeNewCategory(name, sessionKey, expectedSessionId),
       });
     });
+  }
+
+  private sessionIdForKey(key: string): string | undefined {
+    return this.result?.sessions.find((row) => row.key === key)?.sessionId;
   }
 
   /**
@@ -1084,37 +1095,50 @@ class SessionsPage extends OpenClawLightDomElement {
    * row moves, and a catalog write that outlived its connection must not be
    * followed by an assignment issued on the replacement one.
    */
-  private async writeNewCategory(name: string, sessionKey?: string): Promise<string | null> {
+  private async writeNewCategory(
+    name: string,
+    sessionKey?: string,
+    expectedSessionId?: string,
+  ): Promise<InputDialogSubmitOutcome> {
     this.error = null;
     const scope = this.captureRequestScope();
     if (!scope) {
-      return t("sessionsView.newGroupFailed");
+      return { status: "retry", message: t("sessionsView.newGroupFailed") };
     }
     const remembered = await this.rememberCustomGroup(name, scope);
     if (remembered !== "completed") {
-      return remembered === "failed"
-        ? (this.error ?? t("sessionsView.newGroupFailed"))
-        : t("sessionsView.newGroupStale");
+      return {
+        status: "retry",
+        message:
+          remembered === "failed"
+            ? (this.error ?? t("sessionsView.newGroupFailed"))
+            : t("sessionsView.newGroupStale"),
+      };
     }
     if (!sessionKey) {
-      return null;
+      return { status: "done" };
     }
-    // The catalog write is awaited first, so the row can leave this list in
-    // between. sessions.patch would recreate a store entry for a key the list no
-    // longer has, so the move is skipped — but this list is a bounded, filtered
-    // projection, and a plain refresh can page a live row out of it. Skipping
-    // silently would leave the operator with a new group, an unmoved session and
-    // nothing explaining why, so the partial outcome is stated and terminal:
-    // retrying here would only try to create the group that already exists.
-    if (!this.result?.sessions.some((row) => row.key === sessionKey)) {
-      this.error = t("sessionsView.newGroupMoveSkipped");
-      return null;
+    // The catalog write is awaited first, so the row can be replaced in between.
+    // The identity captured with the row travels with the patch and the Gateway
+    // refuses a changed target; this page's own list is one filtered page and
+    // cannot decide that. Never reissue against the successor — that is a
+    // different session than the one the operator picked.
+    const assigned = await this.patchSession(
+      sessionKey,
+      { category: name, ...(expectedSessionId ? { expectedSessionId } : {}) },
+      scope,
+    );
+    if (assigned === "session-changed") {
+      // The group landed and the move never can: state both and stop asking.
+      this.error = t("sessionsView.newGroupSessionReplaced");
+      return { status: "terminal", message: this.error };
     }
-    const assigned = await this.patchSession(sessionKey, { category: name }, scope);
     if (assigned === "failed") {
-      return this.error ?? t("sessionsView.newGroupFailed");
+      return { status: "retry", message: this.error ?? t("sessionsView.newGroupFailed") };
     }
-    return assigned === "stale" ? t("sessionsView.newGroupStale") : null;
+    return assigned === "stale"
+      ? { status: "retry", message: t("sessionsView.newGroupStale") }
+      : { status: "done" };
   }
 
   private async renameSession(row: GatewaySessionRow) {
@@ -1136,23 +1160,31 @@ class SessionsPage extends OpenClawLightDomElement {
 
   private async patchSession(
     key: string,
-    patch: Parameters<SessionsProps["onPatch"]>[1],
+    patch: SessionPatch,
     scope: SessionsPageRequestScope | null = this.captureRequestScope(),
   ): Promise<SessionsPageMutationResult> {
     if (!scope) {
       return "stale";
     }
     const agentId = this.sessionAgentId(key, scope.context);
+    // Every mutation proves its target. Callers that captured identity earlier
+    // (the group dialog) keep theirs; a direct row action reads it here, which is
+    // still the moment the operator acted.
+    const expectedSessionId = patch.expectedSessionId ?? this.sessionIdForKey(key);
+    const identifiedPatch = {
+      ...patch,
+      ...(expectedSessionId ? { expectedSessionId } : {}),
+    };
     if (
       !this.requireMutationAccess(scope, {
         method: "sessions.patch",
-        params: { key, ...patch, ...(agentId ? { agentId } : {}) },
+        params: { key, ...identifiedPatch, ...(agentId ? { agentId } : {}) },
       })
     ) {
       return "failed";
     }
     try {
-      const patched = await scope.sessions.patch(key, patch, {
+      const patched = await scope.sessions.patch(key, identifiedPatch, {
         agentId,
       });
       if (!this.isRequestScopeCurrent(scope)) {
@@ -1168,6 +1200,10 @@ class SessionsPage extends OpenClawLightDomElement {
       return "completed";
     } catch (error) {
       if (this.isRequestScopeCurrent(scope)) {
+        if (isSessionChangedError(error)) {
+          this.error = t("sessionsView.sessionReplaced");
+          return "session-changed";
+        }
         this.error = String(error);
         return "failed";
       }

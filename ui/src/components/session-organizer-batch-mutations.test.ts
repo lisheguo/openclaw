@@ -1,3 +1,4 @@
+import { ErrorCodes, GatewayErrorDetailCodes } from "@openclaw/gateway-client/browser";
 import { describe, expect, it, vi } from "vitest";
 import type {
   SessionsPatchManyParams,
@@ -28,6 +29,7 @@ function createHarness(
     staleAfterRequest?: number;
     requestFailure?: { at: number; error: unknown };
     failedKeys?: readonly string[];
+    sessionChangedKeys?: readonly string[];
     phase?: ApplicationGatewaySnapshot["phase"];
   } = {},
 ) {
@@ -42,6 +44,16 @@ function createHarness(
     }
     const result = {
       outcomes: patchParams.targets.map((target) => {
+        if (params.sessionChangedKeys?.includes(target.key)) {
+          const error = {
+            code: ErrorCodes.INVALID_REQUEST,
+            message: `Session ${target.key} changed before patch. Retry.`,
+            details: { code: GatewayErrorDetailCodes.SESSION_CHANGED },
+          };
+          return target.agentId
+            ? { ok: false as const, key: target.key, agentId: target.agentId, error }
+            : { ok: false as const, key: target.key, error };
+        }
         if (params.failedKeys?.includes(target.key)) {
           const error = { code: "INVALID_REQUEST" as const, message: `failed ${target.key}` };
           return target.agentId
@@ -126,7 +138,7 @@ describe("patchSessionRows", () => {
         patch: { archived: true, unread: false },
       },
     ]);
-    expect(archived).toEqual(rows);
+    expect(archived).toEqual({ rows, sessionChanged: 0 });
     expect(harness.pruneSidebarSessionEntry.mock.calls.map(([key]) => key)).toEqual([
       rows[0]!.key,
       rows[100]!.key,
@@ -151,7 +163,7 @@ describe("patchSessionRows", () => {
 
     await expect(
       patchSessionRows(harness.host, rows, { archived: true }, harness.scope),
-    ).resolves.toEqual([rows[1]]);
+    ).resolves.toEqual({ rows: [rows[1]], sessionChanged: 0 });
 
     expect(harness.pruneSidebarSessionEntry).not.toHaveBeenCalled();
     expect(harness.publishSessionMutationError).toHaveBeenCalledWith(
@@ -175,14 +187,14 @@ describe("patchSessionRows", () => {
 
   it("uses the supplied fallback when the method is unavailable", async () => {
     const harness = createHarness({ methods: [] });
-    const fallbackRows = [sessionRow(1)];
-    const fallback = vi.fn(async () => fallbackRows);
+    const fallbackResult = { rows: [sessionRow(1)], sessionChanged: 0 };
+    const fallback = vi.fn(async () => fallbackResult);
 
     await expect(
       patchSessionRows(harness.host, [sessionRow(0)], { archived: true }, harness.scope, {
         fallback,
       }),
-    ).resolves.toBe(fallbackRows);
+    ).resolves.toBe(fallbackResult);
 
     expect(fallback).toHaveBeenCalledOnce();
     expect(harness.request).not.toHaveBeenCalled();
@@ -202,12 +214,12 @@ describe("patchSessionRows", () => {
         requestFailure: { at: 1, error: rejection },
       });
       const rows = [sessionRow(0)];
-      const fallbackRows = [sessionRow(1)];
-      const fallback = vi.fn(async () => fallbackRows);
+      const fallbackResult = { rows: [sessionRow(1)], sessionChanged: 0 };
+      const fallback = vi.fn(async () => fallbackResult);
 
       await expect(
         patchSessionRows(harness.host, rows, { archived }, harness.scope, { fallback }),
-      ).resolves.toBe(fallbackRows);
+      ).resolves.toBe(fallbackResult);
 
       expect(harness.request).toHaveBeenCalledOnce();
       const requestCall = harness.request.mock.calls[0]!;
@@ -235,7 +247,7 @@ describe("patchSessionRows", () => {
       methods: null,
       requestFailure: { at: 1, error: rejection },
     });
-    const fallback = vi.fn(async () => [sessionRow(1)]);
+    const fallback = vi.fn(async () => ({ rows: [sessionRow(1)], sessionChanged: 0 }));
 
     await expect(
       patchSessionRows(harness.host, [sessionRow(0)], { archived: true }, harness.scope, {
@@ -255,7 +267,7 @@ describe("patchSessionRows", () => {
       methods: null,
       requestFailure: { at: 1, error: rejection },
     });
-    const fallback = vi.fn(async () => [sessionRow(1)]);
+    const fallback = vi.fn(async () => ({ rows: [sessionRow(1)], sessionChanged: 0 }));
 
     await expect(
       patchSessionRows(harness.host, [sessionRow(0)], { unread: true }, harness.scope, {
@@ -269,7 +281,7 @@ describe("patchSessionRows", () => {
 
   it("does not fallback while disconnected", async () => {
     const harness = createHarness({ phase: "stopped" });
-    const fallback = vi.fn(async () => [sessionRow(1)]);
+    const fallback = vi.fn(async () => ({ rows: [sessionRow(1)], sessionChanged: 0 }));
 
     await expect(
       patchSessionRows(harness.host, [sessionRow(0)], { category: "Projects" }, harness.scope, {
@@ -292,11 +304,11 @@ describe("patchSessionRows", () => {
     });
     const harness = createHarness({ requestFailure: { at: 2, error: rejection } });
     const rows = Array.from({ length: 101 }, (_, index) => sessionRow(index));
-    const fallback = vi.fn(async () => [sessionRow(1)]);
+    const fallback = vi.fn(async () => ({ rows: [sessionRow(1)], sessionChanged: 0 }));
 
     await expect(
       patchSessionRows(harness.host, rows, { archived: true }, harness.scope, { fallback }),
-    ).resolves.toEqual(rows.slice(0, 100));
+    ).resolves.toEqual({ rows: rows.slice(0, 100), sessionChanged: 0 });
 
     expect(harness.request).toHaveBeenCalledTimes(2);
     expect(fallback).not.toHaveBeenCalled();
@@ -309,7 +321,7 @@ describe("patchSessionRows", () => {
 
   it("does not fallback when operator.write is missing", async () => {
     const harness = createHarness({ scopes: ["operator.read"] });
-    const fallback = vi.fn(async () => [sessionRow(1)]);
+    const fallback = vi.fn(async () => ({ rows: [sessionRow(1)], sessionChanged: 0 }));
 
     await expect(
       patchSessionRows(harness.host, [sessionRow(0)], { archived: true }, harness.scope, {
@@ -323,6 +335,35 @@ describe("patchSessionRows", () => {
     expect(harness.publishSessionMutationError).toHaveBeenCalledWith(
       harness.scope,
       "This action requires operator.write access.",
+    );
+  });
+  it("sends each row's identity and reports the replaced targets as one sentence", async () => {
+    const rows = [
+      { ...sessionRow(0), sessionId: "session-0" },
+      { ...sessionRow(1), sessionId: "session-1" },
+      { ...sessionRow(2), sessionId: "session-2" },
+    ];
+    const harness = createHarness({
+      sessionChangedKeys: [rows[0]!.key, rows[2]!.key],
+    });
+
+    await expect(
+      patchSessionRows(harness.host, rows, { category: "Projects" }, harness.scope),
+    ).resolves.toEqual({ rows: [rows[1]], sessionChanged: 2 });
+
+    expect(harness.request.mock.calls[0]?.[1]).toEqual({
+      targets: rows.map((row) => ({
+        key: row.key,
+        agentId: "main",
+        expectedSessionId: row.sessionId,
+      })),
+      patch: { category: "Projects" },
+    });
+    // The Gateway's per-key copy tells the operator to retry something that can
+    // never succeed; one counted sentence with the real next step replaces it.
+    expect(harness.publishSessionMutationError).toHaveBeenCalledWith(
+      harness.scope,
+      "Not applied to 2 sessions: they were replaced. Select them again.",
     );
   });
 });

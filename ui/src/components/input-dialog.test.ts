@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getRenderedModalDialog, installDialogPolyfill } from "../test-helpers/modal-dialog.ts";
-import { showInputDialog } from "./input-dialog.ts";
+import { showInputDialog, type InputDialogSubmitOutcome } from "./input-dialog.ts";
 
 let restoreDialogPolyfill: () => void;
 
@@ -111,7 +111,7 @@ describe("showInputDialog", () => {
   });
 
   it("holds a required field closed until it has a non-blank value, then trims it", async () => {
-    const submit = vi.fn().mockResolvedValue(null);
+    const submit = vi.fn().mockResolvedValue({ status: "done" });
     const closed = showInputDialog({ ...REQUIRED, submit });
     await getRenderedModalDialog(document.body);
 
@@ -131,8 +131,10 @@ describe("showInputDialog", () => {
   });
 
   it("keeps the typed value and shows why a rejected attempt failed", async () => {
-    const submit = vi.fn().mockResolvedValueOnce("group name exceeds 512 characters");
-    submit.mockResolvedValue(null);
+    const submit = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "retry", message: "group name exceeds 512 characters" });
+    submit.mockResolvedValue({ status: "done" });
     const closed = showInputDialog({ ...REQUIRED, submit });
     await getRenderedModalDialog(document.body);
 
@@ -152,9 +154,9 @@ describe("showInputDialog", () => {
   });
 
   it("submits once while an attempt is in flight and blocks dismissal until it settles", async () => {
-    let settle!: (message: string | null) => void;
+    let settle!: (outcome: InputDialogSubmitOutcome) => void;
     const submit = vi.fn().mockReturnValue(
-      new Promise<string | null>((resolve) => {
+      new Promise<InputDialogSubmitOutcome>((resolve) => {
         settle = resolve;
       }),
     );
@@ -172,7 +174,7 @@ describe("showInputDialog", () => {
     expect(cancelEvent.defaultPrevented).toBe(true);
     expect(document.body.querySelector("openclaw-modal-dialog")).not.toBeNull();
 
-    settle(null);
+    settle({ status: "done" });
     await closed;
     expect(document.body.querySelector("openclaw-modal-dialog")).toBeNull();
   });
@@ -181,12 +183,12 @@ describe("showInputDialog", () => {
     // A non-async callback that validates synchronously throws before there is
     // a promise to reject; the dialog must not latch disabled on that path.
     let failFirst = true;
-    const submit = vi.fn((): Promise<string | null> => {
+    const submit = vi.fn((): Promise<InputDialogSubmitOutcome> => {
       if (failFirst) {
         failFirst = false;
         throw new Error("synchronous validation blew up");
       }
-      return Promise.resolve(null);
+      return Promise.resolve({ status: "done" });
     });
     const closed = showInputDialog({ ...REQUIRED, submit });
     await getRenderedModalDialog(document.body);
@@ -207,7 +209,7 @@ describe("showInputDialog", () => {
 
   it("turns a thrown operation into a visible failure instead of a stuck dialog", async () => {
     const submit = vi.fn().mockRejectedValueOnce(new Error("gateway exploded"));
-    submit.mockResolvedValue(null);
+    submit.mockResolvedValue({ status: "done" });
     const closed = showInputDialog({ ...REQUIRED, submit });
     await getRenderedModalDialog(document.body);
 
@@ -222,6 +224,31 @@ describe("showInputDialog", () => {
 
     submitForm();
     await closed;
+    expect(document.body.querySelector("openclaw-modal-dialog")).toBeNull();
+  });
+  it("states a terminal outcome and withdraws the attempt that cannot succeed", async () => {
+    const submit = vi
+      .fn()
+      .mockResolvedValue({ status: "terminal", message: "Group created. Nothing moved." });
+    const closed = showInputDialog({ ...REQUIRED, submit });
+    await getRenderedModalDialog(document.body);
+
+    await type("Client work");
+    submitForm();
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    await Promise.resolve();
+
+    // The dialog stays to report the outcome, but the only thing left to do is
+    // leave: no submit button, a disabled field, and a resubmit that is a no-op.
+    expect(document.body.textContent).toContain("Group created. Nothing moved.");
+    expect(document.body.querySelector('[role="alert"]')).not.toBeNull();
+    expect(document.body.querySelector('button[type="submit"]')).toBeNull();
+    expect(dialogInput().disabled).toBe(true);
+    submitForm();
+    expect(submit).toHaveBeenCalledOnce();
+
+    findButton("Close").click();
+    await expect(closed).resolves.toBeNull();
     expect(document.body.querySelector("openclaw-modal-dialog")).toBeNull();
   });
 });

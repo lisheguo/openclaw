@@ -1,6 +1,12 @@
+import { ErrorCodes, GatewayErrorDetailCodes } from "@openclaw/gateway-client/browser";
 import { describe, expect, it } from "vitest";
 import type { SessionsListResult } from "../../api/types.ts";
-import { installDialogPolyfill, submitInputDialog, waitForInputDialog } from "../modal-dialog.ts";
+import {
+  installDialogPolyfill,
+  submitInputDialog,
+  waitForInputDialog,
+  waitForRenderedModalDialog,
+} from "../modal-dialog.ts";
 import { waitForFast } from "../wait-for.ts";
 import {
   click,
@@ -36,10 +42,12 @@ describe("AppSidebar new group dialog", () => {
 
       await waitForFast(() => expect(harness.patchMany).toHaveBeenCalledOnce());
       expect(harness.groupsPut).toHaveBeenCalledWith(["Projects"]);
+      // Each target carries the identity captured with its row, so a session
+      // replaced while the dialog was open is refused instead of reassigned.
       expect(harness.patchMany).toHaveBeenCalledWith(
         [
-          { key: "agent:main:a", agentId: "main" },
-          { key: "agent:main:b", agentId: "main" },
+          { key: "agent:main:a", agentId: "main", expectedSessionId: "session-agent:main:a" },
+          { key: "agent:main:b", agentId: "main", expectedSessionId: "session-agent:main:b" },
         ],
         { category: "Projects" },
       );
@@ -53,11 +61,8 @@ describe("AppSidebar new group dialog", () => {
     }
   });
 
-  it("reports the skipped moves when selected rows leave the list mid-write", async () => {
+  it("assigns with captured identities when rows leave the list mid-write", async () => {
     const restoreDialogPolyfill = installDialogPolyfill();
-    const toastHost = document.createElement("openclaw-toast-host");
-    document.body.append(toastHost);
-    await toastHost.updateComplete;
     try {
       const { sidebar, harness } = await mountMultiSelect([
         "sessions.groups.put",
@@ -81,26 +86,78 @@ describe("AppSidebar new group dialog", () => {
       await submitInputDialog("Projects");
       await waitForFast(() => expect(harness.groupsPut).toHaveBeenCalledOnce());
 
-      // Both rows leave the list while the catalog write is still in flight;
-      // patching their keys now could recreate sessions that were removed.
+      // Both rows leave this bounded, filtered projection while the catalog write
+      // is in flight. That is not evidence they were deleted, so the assignment
+      // still goes out, carrying the identity captured with each row — which is
+      // what lets the Gateway refuse a target that really was replaced.
       harness.publish({ result: { count: 0, sessions: [] } as unknown as SessionsListResult });
       landCatalogWrite();
 
-      // The dialog is removed only once the submit chain has run to completion,
-      // so waiting on that keeps the negative assertions below from passing
-      // before the continuation has had a chance to patch anything.
+      await waitForFast(() => expect(harness.patchMany).toHaveBeenCalledOnce());
+      expect(harness.patchMany).toHaveBeenCalledWith(
+        [
+          { key: "agent:main:a", agentId: "main", expectedSessionId: "session-agent:main:a" },
+          { key: "agent:main:b", agentId: "main", expectedSessionId: "session-agent:main:b" },
+        ],
+        { category: "Projects" },
+      );
+      expect(harness.patch).not.toHaveBeenCalled();
+    } finally {
+      restoreDialogPolyfill();
+    }
+  });
+
+  it("states a replaced target in the dialog and stops offering the attempt", async () => {
+    const restoreDialogPolyfill = installDialogPolyfill();
+    try {
+      const { sidebar, harness } = await mountMultiSelect([
+        "sessions.groups.put",
+        "sessions.patchMany",
+      ]);
+      harness.patchMany.mockResolvedValueOnce({
+        outcomes: [
+          {
+            ok: false,
+            key: "agent:main:a",
+            agentId: "main",
+            error: {
+              code: ErrorCodes.INVALID_REQUEST,
+              message: "Session agent:main:a changed before patch. Retry.",
+              details: { code: GatewayErrorDetailCodes.SESSION_CHANGED },
+            },
+          },
+          { ok: true, key: "agent:main:b", agentId: "main" },
+        ],
+      });
+      click(rowLink(sidebar, "agent:main:a"), { metaKey: true });
+      click(rowLink(sidebar, "agent:main:b"), { metaKey: true });
+      await sidebar.updateComplete;
+      openContextMenu(sidebar, "agent:main:a");
+      await sidebar.updateComplete;
+      const menu = await sessionMenu(sidebar);
+      menu.querySelector<HTMLElement>('wa-dropdown-item[value="new-group"]')?.click();
+
+      await waitForInputDialog();
+      await submitInputDialog("Projects");
+      await waitForFast(() => expect(harness.patchMany).toHaveBeenCalledOnce());
+
+      // The group landed and the replaced row never can: the dialog stays to say
+      // both and drops its submit, because resending cannot change the outcome.
+      const { modal } = await waitForRenderedModalDialog(document.body);
+      await waitForFast(() =>
+        expect(modal.querySelector(".exec-approval-error")?.textContent?.trim()).toBe(
+          "Group created. Sessions that were replaced did not move. Select them again.",
+        ),
+      );
+      expect(modal.querySelector('button[type="submit"]')).toBeNull();
+      const close = modal.querySelector<HTMLButtonElement>(".input-dialog__close");
+      expect(close?.textContent?.trim()).toBe("Close");
+      close?.click();
       await waitForFast(() =>
         expect(document.body.querySelector("openclaw-modal-dialog")).toBeNull(),
       );
-      expect(harness.patchMany).not.toHaveBeenCalled();
-      expect(harness.patch).not.toHaveBeenCalled();
-      // The group landed and the moves did not: that partial outcome has to
-      // reach the operator instead of closing as a plain success.
-      expect(toastHost.querySelector(".app-toast__message")?.textContent).toBe(
-        "Group created, but the move was skipped because the list changed. Move from the row menu.",
-      );
+      expect(harness.patchMany).toHaveBeenCalledOnce();
     } finally {
-      toastHost.remove();
       restoreDialogPolyfill();
     }
   });

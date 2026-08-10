@@ -54,6 +54,8 @@ export function sidebarSessionAttentionPriority(attention: SidebarSessionAttenti
 
 export type SidebarRecentSession = {
   key: string;
+  /** Gateway identity of the session behind this row, so a delayed mutation can prove its target. */
+  sessionId?: string;
   displayName?: string;
   incognito?: boolean;
   createdActor?: SessionCreatedActor;
@@ -180,7 +182,12 @@ export type SidebarSessionMutationScope = {
   selectedAgentId: string;
 };
 
-export type SidebarSessionMutationResult = "completed" | "failed" | "stale";
+/**
+ * `session-changed` is terminal, unlike `failed`: the Gateway refused the patch
+ * because the session the operator picked was replaced, so the same request can
+ * never succeed and callers must state that instead of offering a retry.
+ */
+export type SidebarSessionMutationResult = "completed" | "failed" | "stale" | "session-changed";
 
 export type SidebarSessionPatch = {
   archived?: boolean;

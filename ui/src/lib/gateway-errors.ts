@@ -26,6 +26,21 @@ export function isWizardNotFoundError(err: unknown): boolean {
   );
 }
 
+/**
+ * Identifies the Gateway refusing a mutation whose target session was replaced.
+ * Accepts a thrown request error or a `sessions.patchMany` outcome shape, which
+ * carry the same `code`/`details` pair. Terminal by nature: the expectation the
+ * caller sent can never match again, so resending it is not a recovery.
+ */
+export function isSessionChangedError(err: unknown): boolean {
+  const error = asRecord(err);
+  return (
+    asRecord(error?.details)?.code === GatewayErrorDetailCodes.SESSION_CHANGED &&
+    (error?.gatewayCode === ErrorCodes.INVALID_REQUEST ||
+      error?.code === ErrorCodes.INVALID_REQUEST)
+  );
+}
+
 export function isMissingOperatorReadScopeError(err: unknown): boolean {
   // Structural check, not instanceof: under isolate:false a custom element
   // registered by an earlier test file keeps its own module registry, so class

@@ -1,5 +1,6 @@
 // Compare-and-swap session patches must reject reset replacements atomically.
 import { afterEach, expect, test } from "vitest";
+import { ErrorCodes, GatewayErrorDetailCodes } from "../../packages/gateway-protocol/src/index.js";
 import { loadSessionEntry } from "../config/sessions/session-accessor.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import { embeddedRunMock, writeSessionStore } from "./test-helpers.js";
@@ -43,7 +44,13 @@ test.each([
 
   expect(archived).toMatchObject({
     ok: false,
-    error: { message: `Session ${sessionKey} changed before patch. Retry.` },
+    // Clients must tell a replaced target from any other invalid request without
+    // matching the public copy, so the detail code is part of the contract.
+    error: {
+      code: ErrorCodes.INVALID_REQUEST,
+      details: { code: GatewayErrorDetailCodes.SESSION_CHANGED },
+      message: `Session ${sessionKey} changed before patch. Retry.`,
+    },
   });
   expect(loadSessionEntry({ sessionKey, storePath })).toMatchObject({
     sessionId: "sess-after-reset",
@@ -73,7 +80,13 @@ test("sessions.patch rejects a replaced identity before projected active-run pro
 
   expect(archived).toMatchObject({
     ok: false,
-    error: { message: `Session ${sessionKey} changed before patch. Retry.` },
+    // Clients must tell a replaced target from any other invalid request without
+    // matching the public copy, so the detail code is part of the contract.
+    error: {
+      code: ErrorCodes.INVALID_REQUEST,
+      details: { code: GatewayErrorDetailCodes.SESSION_CHANGED },
+      message: `Session ${sessionKey} changed before patch. Retry.`,
+    },
   });
   expect(loadSessionEntry({ sessionKey, storePath })).toMatchObject({
     sessionId: replacementSessionId,
@@ -109,7 +122,13 @@ test.each([
 
   expect(patched).toMatchObject({
     ok: false,
-    error: { message: `Session ${sessionKey} changed before patch. Retry.` },
+    // Clients must tell a replaced target from any other invalid request without
+    // matching the public copy, so the detail code is part of the contract.
+    error: {
+      code: ErrorCodes.INVALID_REQUEST,
+      details: { code: GatewayErrorDetailCodes.SESSION_CHANGED },
+      message: `Session ${sessionKey} changed before patch. Retry.`,
+    },
   });
   expect(loadSessionEntry({ sessionKey, storePath })).toMatchObject({
     sessionId: "sess-after-reset",

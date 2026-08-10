@@ -34,6 +34,7 @@ import type { SessionMenuAction } from "./session-menu.ts";
 
 type SessionOrganizerOperations = typeof import("./session-organizer-operations.runtime.ts");
 type InputDialogOpener = (typeof import("./input-dialog.ts"))["showInputDialog"];
+type InputDialogSubmitOutcome = import("./input-dialog.ts").InputDialogSubmitOutcome;
 
 export interface SessionOrganizerControllerHost extends ReactiveControllerHost {
   readonly sessionData: Pick<
@@ -447,27 +448,34 @@ export class SessionOrganizerController implements ReactiveController {
    * Replays the failure the mutation already recorded so the dialog can keep the
    * typed name for a retry. A replaced connection confirmed neither the group nor
    * the move, so it reports a retryable message too rather than closing on an
-   * outcome that never landed; resubmitting runs against the new connection.
+   * outcome that never landed; resubmitting runs against the new connection. A
+   * replaced session is the opposite: the group is filed and the move can never
+   * be, so the dialog states it and stops offering the attempt.
    */
   private async writeSessionGroup(
     name: string,
     sessions: readonly SidebarRecentSession[],
-  ): Promise<string | null> {
+  ): Promise<InputDialogSubmitOutcome> {
     const scope = this.host.sessionData.beginSessionMutation();
     if (!scope) {
-      return t("sessionsView.newGroupFailed");
+      return { status: "retry", message: t("sessionsView.newGroupFailed") };
     }
     const operations = await this.loadOperations(scope);
     if (!operations) {
       return this.host.sessionData.isSessionMutationScopeCurrent(scope)
-        ? this.sessionGroupFailure()
-        : t("sessionsView.newGroupStale");
+        ? { status: "retry", message: this.sessionGroupFailure() }
+        : { status: "retry", message: t("sessionsView.newGroupStale") };
     }
     const result = await operations.createSessionGroup(this.host, name, sessions, scope);
-    if (result === "failed") {
-      return this.sessionGroupFailure();
+    if (result === "session-changed") {
+      return { status: "terminal", message: this.sessionGroupFailure() };
     }
-    return result === "stale" ? t("sessionsView.newGroupStale") : null;
+    if (result === "failed") {
+      return { status: "retry", message: this.sessionGroupFailure() };
+    }
+    return result === "stale"
+      ? { status: "retry", message: t("sessionsView.newGroupStale") }
+      : { status: "done" };
   }
 
   private sessionGroupFailure(): string {

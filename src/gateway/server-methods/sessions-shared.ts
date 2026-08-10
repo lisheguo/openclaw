@@ -3,6 +3,8 @@ import { normalizeOptionalString } from "@openclaw/normalization-core/string-coe
 import {
   ErrorCodes,
   errorShape,
+  GatewayErrorDetailCodes,
+  type ErrorShape,
   type SessionOperationEvent,
   type SessionsPatchParams,
 } from "../../../packages/gateway-protocol/src/index.js";
@@ -35,6 +37,18 @@ export {
 import type { GatewayClient, GatewayRequestContext, RespondFn } from "./types.js";
 
 export const sessionLog = createSubsystemLogger("gateway/sessions");
+
+/**
+ * One rejection for every "the target is no longer the session the caller named"
+ * check, so the archive preflight and the writer-queue projection stay one
+ * contract. The detail code is what clients discriminate on: the message is
+ * public copy, and a caller that matched it would break on the next rewording.
+ */
+export function sessionChangedPatchError(key: string): ErrorShape {
+  return errorShape(ErrorCodes.INVALID_REQUEST, `Session ${key} changed before patch. Retry.`, {
+    details: { code: GatewayErrorDetailCodes.SESSION_CHANGED },
+  });
+}
 
 export function respondSessionWorkerPlacementMutationError(
   error: { message: string },

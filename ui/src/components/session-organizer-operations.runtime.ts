@@ -1,4 +1,5 @@
 import { t } from "../i18n/index.ts";
+import { isSessionChangedError } from "../lib/gateway-errors.ts";
 import { readSessionMethodAccess } from "../lib/session-method-access.ts";
 import { moveSessionSection, normalizeSessionSectionOrder } from "../lib/sessions/grouping.ts";
 import {
@@ -21,7 +22,11 @@ import {
   refreshSessionsAfterBatch,
   sessionRowAgentId,
 } from "./session-organizer-batch-mutations.ts";
-import type { SessionActionHost, SessionActionRow } from "./session-organizer-batch-mutations.ts";
+import type {
+  SessionActionHost,
+  SessionActionRow,
+  SessionRowsPatchResult,
+} from "./session-organizer-batch-mutations.ts";
 import type { SessionOrganizerControllerHost } from "./session-organizer-controller.ts";
 
 export type { SessionActionHost, SessionActionRow } from "./session-organizer-batch-mutations.ts";
@@ -54,9 +59,14 @@ export async function patchSession(
     return "stale";
   }
   const agentId = sessionRowAgentId(session, scope);
+  // Identity travels with the patch so the Gateway, which owns the store, drops a
+  // target whose session was replaced instead of applying this to its successor.
+  const identifiedPatch = session.sessionId
+    ? { ...patch, expectedSessionId: session.sessionId }
+    : patch;
   const requestParams = {
     key: session.key,
-    ...patch,
+    ...identifiedPatch,
     agentId,
   };
   if (
@@ -65,7 +75,7 @@ export async function patchSession(
     return "failed";
   }
   try {
-    const patched = await scope.sessions.patch(session.key, patch, {
+    const patched = await scope.sessions.patch(session.key, identifiedPatch, {
       agentId,
       ...(refresh.deferListRefresh ? { deferListRefresh: true } : {}),
     });
@@ -96,6 +106,13 @@ export async function patchSession(
     if (!host.sessionData.isSessionMutationScopeCurrent(scope)) {
       return "stale";
     }
+    // Never reissue this against whatever now holds the key: a changed identity
+    // means a different session than the one the operator picked, and moving that
+    // one would be a worse outcome than not moving anything.
+    if (isSessionChangedError(error)) {
+      host.sessionData.publishSessionMutationError(scope, t("sessionsView.sessionReplaced"));
+      return "session-changed";
+    }
     host.sessionData.publishSessionMutationError(scope, error);
     return "failed";
   }
@@ -113,13 +130,21 @@ export async function patchSessions(
   if (rows.length === 0) {
     return "completed";
   }
-  const successful = await patchSessionRows(host, rows, patch, scope, {
+  const patched = await patchSessionRows(host, rows, patch, scope, {
     fallback: () => patchSessionRowsSerial(host, rows, patch, scope),
   });
-  if (!successful) {
+  if (!patched) {
     return host.sessionData.isSessionMutationScopeCurrent(scope) ? "failed" : "stale";
   }
-  return successful.length === rows.length ? "completed" : "failed";
+  if (patched.rows.length === rows.length) {
+    return "completed";
+  }
+  // Terminal only when replacement accounts for every row that did not land; a
+  // mixed batch keeps `failed` so the caller can still offer the retry that the
+  // other failures deserve.
+  return patched.rows.length + patched.sessionChanged === rows.length
+    ? "session-changed"
+    : "failed";
 }
 
 async function patchSessionRowsSerial(
@@ -128,8 +153,9 @@ async function patchSessionRowsSerial(
   patch: SidebarSessionPatch,
   scope: SidebarSessionMutationScope,
   options: { deferListRefresh?: boolean } = {},
-): Promise<SessionActionRow[] | null> {
+): Promise<SessionRowsPatchResult | null> {
   const completed: SessionActionRow[] = [];
+  let sessionChanged = 0;
   for (const row of rows) {
     const result = await patchSession(host, row, patch, scope, { deferListRefresh: true });
     if (result === "stale") {
@@ -137,6 +163,8 @@ async function patchSessionRowsSerial(
     }
     if (result === "completed") {
       completed.push(row);
+    } else if (result === "session-changed") {
+      sessionChanged += 1;
     }
   }
   if (!options.deferListRefresh) {
@@ -145,7 +173,7 @@ async function patchSessionRowsSerial(
       return null;
     }
   }
-  return completed;
+  return { rows: completed, sessionChanged };
 }
 
 export async function archiveSessionWithUndo(
@@ -176,10 +204,10 @@ async function archiveSessionsWithUndo(
   const archivedRows = await patchSessionRows(host, rows, { archived: true }, scope, {
     fallback: () => patchSessionRowsSerial(host, rows, { archived: true }, scope),
   });
-  if (!archivedRows || archivedRows.length === 0) {
+  if (!archivedRows || archivedRows.rows.length === 0) {
     return;
   }
-  const archived = archivedRows.map((session) => ({ session, pinned: session.pinned }));
+  const archived = archivedRows.rows.map((session) => ({ session, pinned: session.pinned }));
   showToast({
     message:
       archived.length === 1
@@ -212,7 +240,7 @@ async function restoreArchivedSessions(
     return;
   }
   const repinRows = archived.flatMap(({ session, pinned }) =>
-    pinned && restored.includes(session) ? [session] : [],
+    pinned && restored.rows.includes(session) ? [session] : [],
   );
   if (repinRows.length > 0) {
     const repinned = singleRowUndo
@@ -399,39 +427,31 @@ export async function createSessionGroup(
   if (remembered !== "completed") {
     return remembered;
   }
-  // The dialog no longer blocks, so a captured row can be deleted while the
-  // catalog write is in flight, and sessions.patch would recreate it. Re-resolve
-  // every target against the current list, as the Sessions-page path does.
-  const targets = sessions.flatMap((session) => {
-    const current = host.findSidebarSessionByKey(session.key);
-    return current ? [current] : [];
-  });
-  if (targets.length > 0) {
+  // The rows carry the identity captured when the operator picked them, so the
+  // Gateway refuses a session replaced while the catalog write was in flight.
+  // Nothing is re-resolved against the sidebar list here: that list is a bounded,
+  // filtered projection, and a row leaving it is not evidence the session is gone.
+  if (sessions.length > 0) {
     const moved =
-      targets.length === 1
-        ? await patchSession(host, targets[0]!, { category: name }, scope)
-        : await patchSessions(host, targets, { category: name }, scope);
-    // Rows that left the list are absent from `targets`, so patching the
-    // remainder reports success for a selection that was only partly applied.
-    // Closing on that would leave the skipped rows unaccounted for, so the
-    // partial outcome is named here; it is terminal, as the group already exists.
-    if (moved === "completed" && targets.length < sessions.length) {
-      showToast({ message: t("sessionsView.newGroupMovePartial") });
+      sessions.length === 1
+        ? await patchSession(host, sessions[0]!, { category: name }, scope)
+        : await patchSessions(host, sessions, { category: name }, scope);
+    if (moved === "session-changed" && host.sessionData.isSessionMutationScopeCurrent(scope)) {
+      // Restate the compound outcome over the generic one the patch published:
+      // the group did land, and only the move is missing.
+      host.sessionData.publishSessionMutationError(
+        scope,
+        sessions.length === 1
+          ? t("sessionsView.newGroupSessionReplaced")
+          : t("sessionsView.newGroupSessionsReplaced"),
+      );
     }
     return moved;
   }
   if (!host.sessionData.isSessionMutationScopeCurrent(scope)) {
     return "stale";
   }
-  // A header-created group starts empty and needs no notice. Rows that were
-  // requested but resolved to nothing are a partial outcome: the group landed
-  // and the moves did not. The sidebar list is a bounded projection, so this is
-  // not proof the sessions are gone — say so rather than closing on a silent
-  // non-outcome the operator cannot account for.
-  if (sessions.length > 0) {
-    showToast({ message: t("sessionsView.newGroupMoveSkipped") });
-  }
-  // Re-render so the new section shows up.
+  // Header-created groups start empty; re-render so the new section shows up.
   host.requestUpdate();
   return "completed";
 }

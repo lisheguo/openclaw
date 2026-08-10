@@ -16,13 +16,21 @@ type InputDialogOptions = {
    * off and keep receiving the raw value.
    */
   requireValue?: boolean;
-  /**
-   * Runs the operation the dialog was opened for. `null` resolves the dialog; a
-   * message keeps it open with the typed value, so a rejected attempt stays
-   * visible and retryable instead of discarding what the operator wrote.
-   */
-  submit?: (value: string) => Promise<string | null>;
+  /** Runs the operation the dialog was opened for. */
+  submit?: (value: string) => Promise<InputDialogSubmitOutcome>;
 };
+
+/**
+ * `done` resolves the dialog. `retry` keeps it open with the typed value, so a
+ * rejected attempt stays visible and retryable instead of discarding what the
+ * operator wrote. `terminal` states an outcome that resubmitting cannot change
+ * and blocks another attempt, because offering one would be a dead end dressed
+ * up as a recovery.
+ */
+export type InputDialogSubmitOutcome =
+  | { status: "done" }
+  | { status: "retry"; message: string }
+  | { status: "terminal"; message: string };
 
 let inputActive = false;
 
@@ -36,6 +44,7 @@ function presentInputDialog(options: InputDialogOptions): Promise<string | null>
     let settled = false;
     let submitting = false;
     let failure: string | null = null;
+    let terminal = false;
     // Tracked so the submit button can reflect an empty required field. It flips
     // only across the empty boundary, never per keystroke: the value binding is
     // constant, so the input stays uncontrolled and keeps its caret and IME
@@ -69,7 +78,9 @@ function presentInputDialog(options: InputDialogOptions): Promise<string | null>
 
     async function handleSubmit(event: Event) {
       event.preventDefault();
-      if (submitting) {
+      // Terminal withdraws the attempt for good: the button is gone, but a form
+      // submit can still be raised, and running it again would only re-report.
+      if (submitting || terminal) {
         return;
       }
       const raw = inputElement()?.value;
@@ -91,23 +102,29 @@ function presentInputDialog(options: InputDialogOptions): Promise<string | null>
       // the dialog would stay disabled forever and wedge every later request.
       // The call itself is inside the try, so a callback that throws before it
       // returns a promise is caught too.
-      let message: string | null;
+      let outcome: InputDialogSubmitOutcome;
       try {
-        message = await options.submit(value);
+        outcome = await options.submit(value);
       } catch (error) {
-        message = String(error);
+        outcome = { status: "retry", message: String(error) };
       }
       if (settled) {
         return;
       }
       submitting = false;
-      if (message === null) {
+      if (outcome.status === "done") {
         finish(value);
         return;
       }
-      failure = message;
+      failure = outcome.message;
+      terminal = outcome.status === "terminal";
       paint();
-      inputElement()?.focus();
+      // A terminal outcome leaves nothing to edit, so focus the way out instead
+      // of the field the operator can no longer resubmit.
+      (terminal
+        ? host.querySelector<HTMLButtonElement>(".input-dialog__close")
+        : inputElement()
+      )?.focus();
     }
 
     // A pending submit owns the dialog: dismissing it here would strand that
@@ -143,7 +160,7 @@ function presentInputDialog(options: InputDialogOptions): Promise<string | null>
                   autocomplete="off"
                   spellcheck="false"
                   .value=${options.defaultValue ?? ""}
-                  ?disabled=${submitting}
+                  ?disabled=${submitting || terminal}
                   aria-invalid=${failure ? "true" : nothing}
                   @input=${handleInput}
                   autofocus
@@ -153,16 +170,24 @@ function presentInputDialog(options: InputDialogOptions): Promise<string | null>
                 ? html`<div class="exec-approval-error" role="alert">${failure}</div>`
                 : nothing}
               <div class="exec-approval-actions">
-                <button type="submit" class="btn primary" ?disabled=${submitting || blockedEmpty}>
-                  ${options.submitLabel ?? t("common.save")}
-                </button>
+                ${terminal
+                  ? nothing
+                  : html`
+                      <button
+                        type="submit"
+                        class="btn primary"
+                        ?disabled=${submitting || blockedEmpty}
+                      >
+                        ${options.submitLabel ?? t("common.save")}
+                      </button>
+                    `}
                 <button
                   type="button"
-                  class="btn"
+                  class="btn input-dialog__close ${terminal ? "primary" : ""}"
                   ?disabled=${submitting}
                   @click=${() => finish(null)}
                 >
-                  ${options.cancelLabel ?? t("common.cancel")}
+                  ${terminal ? t("common.close") : (options.cancelLabel ?? t("common.cancel"))}
                 </button>
               </div>
             </form>
