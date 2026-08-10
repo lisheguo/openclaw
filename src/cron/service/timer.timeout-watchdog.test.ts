@@ -779,13 +779,18 @@ describe("cron service timer regressions", () => {
       expect(job.state.lastStatus).toBe("error");
       expect(job.state.lastError).toContain("stalled before execution start");
       expect(job.state.lastError).toContain("runtime-plugins");
+      expect(job.state.lastDiagnosticSummary).toContain("runtime-plugins");
       expect(cleanupTimedOutAgentRun).toHaveBeenCalledTimes(1);
       expect(sendCronFailureAlert).toHaveBeenCalledTimes(1);
       expect(sendCronFailureAlert).toHaveBeenCalledWith(
         expect.objectContaining({
           channel: "telegram",
           to: "12345",
-          payload: expect.objectContaining({ text: expect.stringContaining("runtime-plugins") }),
+          payload: expect.objectContaining({
+            text:
+              'Automation "before agent reply unhandled regression" failed 1 times\n' +
+              "Check automation history for details.",
+          }),
         }),
       );
     } finally {
