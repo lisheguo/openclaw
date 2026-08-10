@@ -779,6 +779,7 @@ describe("cron service timer regressions", () => {
       expect(job.state.lastStatus).toBe("error");
       expect(job.state.lastError).toContain("stalled before execution start");
       expect(job.state.lastError).toContain("runtime-plugins");
+      expect(job.state.lastDiagnosticSummary).toContain("runtime-plugins");
       expect(cleanupTimedOutAgentRun).toHaveBeenCalledTimes(1);
       expect(sendCronFailureAlert).toHaveBeenCalledTimes(1);
       expect(sendCronFailureAlert).toHaveBeenCalledWith(

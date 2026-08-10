@@ -661,7 +661,7 @@ suite.define(() => {
           "/thumbnail",
         ),
         suite.server.baseUrl,
-      ).pathname;
+      ).pathname.replace(/\/full$/u, "/thumbnail");
       const fetchesBeforeRevisit = fetchedMedia.filter(
         (request) => request.pathname === evictedPath,
       ).length;
