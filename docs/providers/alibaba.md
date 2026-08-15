@@ -4,6 +4,7 @@ title: "Alibaba Model Studio"
 read_when:
   - You want to use Alibaba Wan video generation in OpenClaw
   - You need Model Studio or DashScope API key setup for video generation
+  - You need to configure DashScope Responses session chaining
 ---
 
 The bundled `alibaba` plugin registers a video-generation provider for Wan models on Alibaba Model Studio (the international name for DashScope). It is enabled by default; only an API key is needed.
@@ -143,6 +144,13 @@ A request that omits `durationSeconds` gets DashScope's accepted default of **5 
 ## Related
 
 <CardGroup cols={2}>
+  <Card
+    title="DashScope Responses session cache"
+    href="/providers/dashscope-responses-session-cache"
+    icon="database"
+  >
+    Agent-safe openclaw.json configuration, verification, and rollback steps.
+  </Card>
   <Card title="Video generation" href="/tools/video-generation" icon="video">
     Shared video tool parameters and provider selection.
   </Card>
