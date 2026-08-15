@@ -418,11 +418,18 @@ export function shouldPreemptivelyCompactBeforePrompt(params: {
   );
   const toolResultReducibleChars = toolResultPotential.maxReducibleChars;
 
-  const effectiveMaxInputItems = Math.max(1, Math.floor(params.maxInputItems ?? 1000));
-  const effectiveItemsSafetyMargin = Math.max(0, Math.floor(params.inputItemsSafetyMargin ?? 150));
+  const effectiveMaxInputItems =
+    typeof params.maxInputItems === "number" && Number.isFinite(params.maxInputItems)
+      ? Math.max(1, Math.floor(params.maxInputItems))
+      : undefined;
+  const effectiveItemsSafetyMargin =
+    effectiveMaxInputItems === undefined
+      ? undefined
+      : Math.max(0, Math.floor(params.inputItemsSafetyMargin ?? 150));
   const estimatedInputItems = estimateInputItems(messagesForPressure);
   const inputItemsOverflow =
-    estimatedInputItems >= effectiveMaxInputItems - effectiveItemsSafetyMargin;
+    effectiveMaxInputItems !== undefined &&
+    estimatedInputItems >= effectiveMaxInputItems - (effectiveItemsSafetyMargin ?? 0);
 
   let route: PreemptiveCompactionRoute = "fits";
   // Volcengine Ark (Responses API) hard-caps input items (e.g. 1000); exceeding it rejects the
