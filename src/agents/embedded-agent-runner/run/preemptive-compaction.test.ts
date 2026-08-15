@@ -84,6 +84,21 @@ describe("preemptive-compaction", () => {
         timestamp: index + 10_000,
       }) as AgentMessage;
 
+    it("keeps item overflow routing disabled when maxInputItems is omitted", () => {
+      const result = shouldPreemptivelyCompactBeforePrompt({
+        messages: Array.from({ length: 1000 }, (_, index) => makeInputItemMessage(index)),
+        prompt: "hello",
+        contextTokenBudget: 128_000,
+        reserveTokens: 32_000,
+      });
+
+      expect(result.route).not.toBe("compact_items_overflow");
+      expect(result.shouldCompactByItems).toBe(false);
+      expect(result.estimatedInputItems).toBe(1001);
+      expect(result.inputItemsLimit).toBeUndefined();
+      expect(result.inputItemsSafetyMargin).toBeUndefined();
+    });
+
     it("does not trigger compact_items_overflow below item threshold", () => {
       const result = shouldPreemptivelyCompactBeforePrompt({
         messages: Array.from({ length: 848 }, (_, index) => makeInputItemMessage(index)),
