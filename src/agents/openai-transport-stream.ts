@@ -65,7 +65,13 @@ import type {
 } from "openai/resources/responses/responses.js";
 import type { ModelCompatConfig } from "../config/types.models.js";
 import { sha256Hex, sha256HexPrefix } from "../infra/crypto-digest.js";
-import type { Api, Context, Model, Usage } from "../llm/types.js";
+import type {
+  Api,
+  Context,
+  Model,
+  OpenAIResponsesResponseProvenance,
+  Usage,
+} from "../llm/types.js";
 import "../llm/ai-transport-host.js";
 import { createAssistantMessageEventStream } from "../llm/utils/event-stream.js";
 import { redactIdentifier } from "../logging/redact-identifier.js";
@@ -136,16 +142,7 @@ const log = createSubsystemLogger("openai-transport");
 const loggedOpenAIStrictToolDowngradeDiagnosticKeys = new Set<string>();
 
 type ReplayableResponseOutputMessage = Omit<ResponseOutputMessage, "id"> & { id?: string };
-type OpenAIResponsesReasoningReplayMetadata = {
-  v: 1;
-  source: "openai-responses";
-  provider: string;
-  api: Api;
-  model: string;
-  baseUrlHash?: string;
-  sessionHash?: string;
-  authProfileHash?: string;
-};
+type OpenAIResponsesReasoningReplayMetadata = OpenAIResponsesResponseProvenance;
 type ReplayableResponseReasoningItem = Omit<ResponseReasoningItem, "id"> & {
   id?: string;
   [OPENAI_RESPONSES_REASONING_REPLAY_META_KEY]?: OpenAIResponsesReasoningReplayMetadata;
@@ -260,6 +257,7 @@ type MutableAssistantOutput = {
   stopReason: string;
   timestamp: number;
   responseId?: string;
+  responseProvenance?: OpenAIResponsesResponseProvenance;
   errorMessage?: string;
   errorCode?: string;
   errorType?: string;
@@ -954,6 +952,63 @@ function encryptedReasoningReplayMetadataMatches(
     metadata.sessionHash === context.sessionHash &&
     metadata.authProfileHash === context.authProfileHash
   );
+}
+
+type OpenAIResponsesPreviousResponseAnchor = {
+  responseId: string;
+  messageIndex: number;
+};
+
+function resolveOpenAIResponsesPreviousResponseAnchor(
+  model: Model,
+  context: Context,
+  options?: Pick<BaseStreamOptions, "authProfileId" | "sessionId">,
+): OpenAIResponsesPreviousResponseAnchor | undefined {
+  const compat = getCompat(model as OpenAIModeModel);
+  if (compat.supportsPreviousResponseId !== true) {
+    return undefined;
+  }
+
+  let latestCompactionTimestamp: number | undefined;
+  for (const message of context.messages) {
+    if (
+      message.role === "user" &&
+      message.compactionSummary === true &&
+      (latestCompactionTimestamp === undefined || message.timestamp > latestCompactionTimestamp)
+    ) {
+      latestCompactionTimestamp = message.timestamp;
+    }
+  }
+
+  const replayContext = buildOpenAIResponsesReplayContext(model, options);
+  for (let messageIndex = context.messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const message = context.messages[messageIndex];
+    if (message.role !== "assistant") {
+      continue;
+    }
+    const responseId = message.responseId?.trim();
+    if (!responseId) {
+      continue;
+    }
+    if (latestCompactionTimestamp !== undefined && message.timestamp <= latestCompactionTimestamp) {
+      continue;
+    }
+    if (
+      message.provider !== model.provider ||
+      message.api !== model.api ||
+      message.model !== model.id
+    ) {
+      continue;
+    }
+    const provenance = isOpenAIResponsesReasoningReplayMetadata(message.responseProvenance)
+      ? message.responseProvenance
+      : undefined;
+    if (!encryptedReasoningReplayMetadataMatches(provenance, replayContext)) {
+      continue;
+    }
+    return { responseId, messageIndex };
+  }
+  return undefined;
 }
 
 function readOpenAIResponsesReasoningReplayBlockMetadata(
@@ -2027,6 +2082,14 @@ export function createOpenAIResponsesTransportStreamFn(): StreamFn {
         },
         stopReason: "stop",
         timestamp: Date.now(),
+        ...(getCompat(model as OpenAIModeModel).supportsPreviousResponseId === true
+          ? {
+              responseProvenance: buildOpenAIResponsesReasoningReplayMetadata(model, {
+                authProfileId: responsesOptions?.authProfileId,
+                sessionId: responsesOptions?.sessionId,
+              }),
+            }
+          : {}),
       };
       let firstEventAbort: ReturnType<typeof createFirstStreamEventAbortController> | undefined;
       try {
@@ -2350,12 +2413,23 @@ export function buildOpenAIResponsesParams(
     payloadPolicy.explicitStore !== false && !payloadPolicy.shouldStripStore;
   const replayResponsesItemIds =
     !isNativeCodexResponses && (options?.replayResponsesItemIds ?? policyAllowsReplayIds);
-  const messages = convertResponsesMessages(
+  const previousResponseAnchor = resolveOpenAIResponsesPreviousResponseAnchor(
     model,
     context,
+    options,
+  );
+  const requestContext = previousResponseAnchor
+    ? {
+        ...context,
+        messages: context.messages.slice(previousResponseAnchor.messageIndex + 1),
+      }
+    : context;
+  const messages = convertResponsesMessages(
+    model,
+    requestContext,
     new Set(["openai", "opencode", "azure-openai-responses", "github-copilot"]),
     {
-      includeSystemPrompt: !isCodexResponses,
+      includeSystemPrompt: !isCodexResponses && !previousResponseAnchor,
       supportsDeveloperRole,
       replayReasoningItems: true,
       replayResponsesItemIds,
@@ -2364,7 +2438,7 @@ export function buildOpenAIResponsesParams(
     },
   );
   if (isCodexResponses) {
-    ensureOpenAICodexResponsesInput(messages, context);
+    ensureOpenAICodexResponsesInput(messages, requestContext);
   }
   const cacheRetention = resolveCacheRetention(options?.cacheRetention);
   const promptCacheKey = resolvePromptCacheKey(options, cacheRetention);
@@ -2374,6 +2448,9 @@ export function buildOpenAIResponsesParams(
     stream: true,
     prompt_cache_key: promptCacheKey,
     prompt_cache_retention: getPromptCacheRetention(model.baseUrl, cacheRetention),
+    ...(previousResponseAnchor
+      ? { previous_response_id: previousResponseAnchor.responseId }
+      : {}),
     ...(isCodexResponses
       ? { instructions: resolveOpenAICodexResponsesInstructions(model, context) }
       : {}),
@@ -3688,6 +3765,7 @@ type OpenAIResponsesRequestParams = {
   instructions?: string;
   prompt_cache_key?: string;
   prompt_cache_retention?: "24h";
+  previous_response_id?: string;
   metadata?: Record<string, string>;
   store?: boolean;
   max_output_tokens?: number;
@@ -4544,6 +4622,7 @@ export const testing = {
   formatModelTransportDebugBaseUrl,
   buildResponsesFailedNoDetailsObservation,
   buildOpenAIResponsesReasoningReplayMetadata,
+  resolveOpenAIResponsesPreviousResponseAnchor,
   normalizeResponsesFailedEvent,
   prepareOpenAIResponsesReasoningItemForReplay,
   createResponsesStreamWithEncryptedContentRetry,
