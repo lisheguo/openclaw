@@ -296,6 +296,20 @@ export interface UserMessage {
    * turn. Anchoring stays on the last stable (non-carrier) user message.
    */
   runtimeContextCarrier?: boolean;
+  /** Marks the synthetic summary boundary introduced by transcript compaction. */
+  compactionSummary?: boolean;
+}
+
+/** Provenance required before reusing an OpenAI Responses response id. */
+export interface OpenAIResponsesResponseProvenance {
+  v: 1;
+  source: "openai-responses";
+  provider: Provider;
+  api: Api;
+  model: string;
+  baseUrlHash?: string;
+  sessionHash?: string;
+  authProfileHash?: string;
 }
 
 /** Assistant turn, including provider identity and final stop state. */
@@ -307,6 +321,7 @@ export interface AssistantMessage {
   model: string;
   responseModel?: string; // Concrete `chunk.model` when different from the requested `model` (e.g. OpenRouter `auto` -> `anthropic/...`)
   responseId?: string; // Provider-specific response/message identifier when the upstream API exposes one
+  responseProvenance?: OpenAIResponsesResponseProvenance;
   diagnostics?: AssistantMessageDiagnostic[]; // Redacted provider/runtime diagnostics for failures and recoveries.
   usage: Usage;
   stopReason: StopReason;
@@ -476,6 +491,11 @@ export interface OpenAIResponsesCompat {
   sendSessionIdHeader?: boolean;
   /** Whether the provider supports `prompt_cache_retention: "24h"`. Default: true. */
   supportsLongCacheRetention?: boolean;
+  /**
+   * Whether the provider supports stateful Responses chaining with
+   * `previous_response_id`. Default: false.
+   */
+  supportsPreviousResponseId?: boolean;
 }
 
 /** Compatibility settings for Anthropic Messages-compatible APIs. */
