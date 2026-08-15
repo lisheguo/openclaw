@@ -48,7 +48,10 @@ type SupportedOpenAICompatFields = Pick<
 
 type SupportedOpenAIResponsesCompatFields = Pick<
   OpenAIResponsesCompat,
-  "sendSessionIdHeader" | "supportsLongCacheRetention" | "supportsTemperature"
+  | "sendSessionIdHeader"
+  | "supportsLongCacheRetention"
+  | "supportsPreviousResponseId"
+  | "supportsTemperature"
 >;
 
 type SupportedAnthropicMessagesCompatFields = Pick<
