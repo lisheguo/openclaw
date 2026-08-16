@@ -1007,6 +1007,8 @@ export const FIELD_HELP: Record<string, string> = {
     "Default effective runtime context cap applied to models under this provider when a model entry does not set contextTokens. Use this when runtime should budget below the native contextWindow.",
   "models.providers.*.maxTokens":
     "Default maximum output token budget applied to models under this provider when a model entry does not set maxTokens.",
+  "models.providers.*.responsesMaxInputItems":
+    "Optional provider-level maximum number of input items for Responses API requests. Model-level compat.responsesMaxInputItems overrides it; undefined disables provider-level item-count compaction.",
   "models.providers.*.timeoutSeconds":
     "Optional per-provider model request timeout in seconds. Provider-level request settings affect explicit provider-owned model rows; they do not create implicit models. For custom providers, set it alongside the provider baseUrl and models. Applies to provider HTTP fetches, including connect, headers, body, and total request abort handling, and also raises the LLM idle/stream watchdog ceiling for this provider above the implicit ~120s default. Use this for slow local or self-hosted model servers, or for cloud providers that buffer reasoning tokens silently on the wire (Gemini preview, large-tool-payload Claude/Opus), instead of changing global agent timeouts.",
   "models.providers.*.region":
@@ -1104,6 +1106,8 @@ export const FIELD_HELP: Record<string, string> = {
     "When true, allow model-provider HTTP requests to private, CGNAT, or similar ranges through the provider HTTP fetch guard (fetchWithSsrFGuard). Custom/local provider base URLs already trust the exact configured origin, except metadata/link-local origins; set this to false to opt out of that trust. OpenAI Responses WebSocket reuses request for headers/TLS but does not use that fetch SSRF path. Use true only for operator-controlled self-hosted endpoints that must reach private origins outside the configured baseUrl origin.",
   "models.providers.*.models":
     "Declared model list for a provider including identifiers, metadata, provider-specific params, and optional compatibility/cost hints. Keep IDs exact to provider catalog values so selection and fallback resolve correctly.",
+  "models.providers.*.models[].compat.responsesMaxInputItems":
+    "Maximum number of input items for Responses API requests. Undefined disables item-count based compaction for this model; this model-level value overrides provider and legacy agent settings.",
   "models.providers.*.models[].agentRuntime":
     "Optional low-level agent runtime policy for this specific model. Model runtime policy overrides the provider runtime policy.",
   "models.providers.*.models[].agentRuntime.id":
@@ -1513,7 +1517,7 @@ export const FIELD_HELP: Record<string, string> = {
   "agents.defaults.compaction.reserveTokensFloor":
     "Minimum floor enforced for reserveTokens in embedded OpenClaw compaction paths (0 disables the floor guard). Use a non-zero floor to avoid over-aggressive compression under fluctuating token estimates.",
   "agents.defaults.compaction.maxInputItems":
-    "Optional maximum number of input items (messages plus tool/result/thinking/image blocks) allowed before pre-prompt compaction triggers. Disabled when omitted. Set to 1000 for the Volcengine Ark Responses API hard cap; lower it for providers with smaller item limits. Prevents 'Maximum of 1000 items allowed in input' errors.",
+    "Legacy compatibility fallback for Responses input-item limits. Prefer models.providers.*.models[].compat.responsesMaxInputItems or the provider-level responsesMaxInputItems capability. Disabled when omitted.",
   "agents.defaults.compaction.maxHistoryShare":
     "Maximum fraction of total context budget allowed for retained history after compaction (range 0.1-0.9). Use lower shares for more generation headroom or higher shares for deeper historical continuity.",
   "agents.defaults.compaction.identifierPolicy":

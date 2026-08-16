@@ -519,6 +519,7 @@ import {
   formatPrePromptPrecheckLog,
   shouldPreemptivelyCompactBeforePrompt,
 } from "./preemptive-compaction.js";
+import { resolveResponsesMaxInputItems } from "./responses-input-items-limit.js";
 import {
   buildCurrentInboundPrompt,
   buildRuntimeContextCustomMessage,
@@ -4839,6 +4840,11 @@ export async function runEmbeddedAttempt(
             systemPrompt: systemPromptForHook,
             prompt: llmBoundaryPromptForPrecheck,
           });
+          const responsesInputItemsLimit = resolveResponsesMaxInputItems({
+            model: params.model,
+            provider: params.config?.models?.providers?.[params.provider],
+            legacyAgentMaxInputItems: params.config?.agents?.defaults?.compaction?.maxInputItems,
+          });
           let preemptiveCompaction = null;
           const shouldSkipPrecheck =
             skipPromptSubmission ||
@@ -4863,7 +4869,7 @@ export async function runEmbeddedAttempt(
               contextTokenBudget,
               reserveTokens,
               toolResultMaxChars: promptToolResultMaxChars,
-              maxInputItems: params.config?.agents?.defaults?.compaction?.maxInputItems,
+              maxInputItems: responsesInputItemsLimit.maxInputItems,
               llmBoundaryTokenPressure: {
                 estimatedPromptTokens: llmBoundaryTokenPressure,
                 source: "llm_boundary_normalized_prompt",
@@ -4888,6 +4894,7 @@ export async function runEmbeddedAttempt(
             log.debug(
               formatPrePromptPrecheckLog({
                 result: preemptiveCompaction,
+                inputItemsLimitSource: responsesInputItemsLimit.source,
                 provider: params.provider,
                 modelId: params.modelId,
                 messageCount: activeSession.messages.length,
@@ -4978,6 +4985,7 @@ export async function runEmbeddedAttempt(
                 `toolResultReducibleChars=${preemptiveCompaction.toolResultReducibleChars} ` +
                 `reserveTokens=${reserveTokens} ` +
                 `effectiveReserveTokens=${preemptiveCompaction.effectiveReserveTokens} ` +
+                `inputItemsLimitSource=${responsesInputItemsLimit.source} ` +
                 `sessionFile=${params.sessionFile}`,
             );
             skipPromptSubmission = true;

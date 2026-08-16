@@ -9,6 +9,8 @@ import {
   classifyAssistantFailoverReason,
   formatUserFacingAssistantErrorText,
 } from "./embedded-agent-helpers.js";
+import { shouldPreemptivelyCompactBeforePrompt } from "./embedded-agent-runner/run/preemptive-compaction.js";
+import { resolveResponsesMaxInputItems } from "./embedded-agent-runner/run/responses-input-items-limit.js";
 import {
   buildOpenAIResponsesParams,
   buildOpenAICompletionsParams,
@@ -107,6 +109,22 @@ function createAzureResponsesModel(): Model<"azure-openai-responses"> {
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200_000,
+    maxTokens: 8192,
+  };
+}
+
+function createPreviousResponseModel(): Model<"openai-responses"> {
+  return {
+    id: "qwen-plus",
+    name: "Qwen Plus",
+    api: "openai-responses",
+    provider: "compatible-provider",
+    baseUrl: "https://responses.example/v1",
+    compat: { supportsPreviousResponseId: true },
+    reasoning: false,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128_000,
     maxTokens: 8192,
   };
 }
@@ -3764,11 +3782,33 @@ describe("openai transport stream", () => {
           tools: [],
         } as never,
         undefined,
-      ) as { input: Array<{ role?: string }>; previous_response_id?: string };
+      ) as {
+        input: Array<{ role?: string }>;
+        previous_response_id?: string;
+        store?: boolean;
+      };
 
       expect(params).not.toHaveProperty("previous_response_id");
+      expect(params.store).toBe(false);
       expect(params.input).toHaveLength(4);
       expect(params.input[0]?.role).toBe("system");
+    });
+
+    it("forces store for a full rebuild when no safe anchor exists", () => {
+      const model = createChainingModel();
+      const params = buildOpenAIResponsesParams(
+        model,
+        {
+          systemPrompt: "system",
+          messages: [{ role: "user", content: "first", timestamp: 1 }],
+          tools: [],
+        } as never,
+        undefined,
+      ) as { input: unknown[]; previous_response_id?: string; store?: boolean };
+
+      expect(params).not.toHaveProperty("previous_response_id");
+      expect(params.store).toBe(true);
+      expect(params.input).toHaveLength(2);
     });
 
     it("sends only the incremental user turn after a safe anchor", () => {
@@ -3792,6 +3832,7 @@ describe("openai transport stream", () => {
       };
 
       expect(params.previous_response_id).toBe("resp_1");
+      expect(params.store).toBe(true);
       expect(params.input).toEqual([
         {
           type: "message",
@@ -3829,6 +3870,7 @@ describe("openai transport stream", () => {
       };
 
       expect(params.previous_response_id).toBe("resp_tool");
+      expect(params.store).toBe(true);
       expect(params.input).toEqual([
         {
           type: "function_call_output",
@@ -3919,6 +3961,8 @@ describe("openai transport stream", () => {
         undefined,
       ) as { previous_response_id?: string };
       expect(firstParams).not.toHaveProperty("previous_response_id");
+      expect(firstParams).toHaveProperty("store", true);
+      expect(firstParams).toHaveProperty("input");
 
       const resumedParams = buildOpenAIResponsesParams(
         model,
@@ -3969,6 +4013,109 @@ describe("openai transport stream", () => {
           }
         ).previous_response_id,
       ).toBe("resp_branch_b");
+    });
+
+    it("resets the chain after item-limit precheck triggers compaction", () => {
+      const model = createChainingModel({
+        compat: {
+          supportsPreviousResponseId: true,
+          responsesMaxInputItems: 1000,
+        },
+      });
+      const resolvedLimit = resolveResponsesMaxInputItems({ model });
+      const precheck = shouldPreemptivelyCompactBeforePrompt({
+        messages: Array.from({ length: 850 }, (_, index) => ({
+          role: "user" as const,
+          content: `message-${index}`,
+          timestamp: index,
+        })),
+        prompt: "next",
+        contextTokenBudget: 128_000,
+        reserveTokens: 32_000,
+        maxInputItems: resolvedLimit.maxInputItems,
+      });
+      expect(precheck.route).toBe("compact_items_overflow");
+
+      const params = buildOpenAIResponsesParams(
+        model,
+        {
+          systemPrompt: "system",
+          messages: [
+            {
+              role: "user",
+              content: "compacted summary",
+              timestamp: 1000,
+              compactionSummary: true,
+            },
+            makeAnchor(model, "resp_before_item_compaction", 900),
+            { role: "user", content: "retained tail", timestamp: 1100 },
+          ],
+          tools: [],
+        } as never,
+        undefined,
+      ) as { previous_response_id?: string; store?: boolean };
+
+      expect(params).not.toHaveProperty("previous_response_id");
+      expect(params.store).toBe(true);
+    });
+
+    it("rejects an anchor when the API identity changed", () => {
+      const model = createChainingModel();
+      const anchor = {
+        ...makeAnchor(model, "resp_old_api", 1),
+        api: "openai-chatgpt-responses",
+      };
+      const params = buildOpenAIResponsesParams(
+        model,
+        {
+          systemPrompt: "system",
+          messages: [anchor, { role: "user", content: "next", timestamp: 2 }],
+          tools: [],
+        } as never,
+        undefined,
+      ) as { input: unknown[]; previous_response_id?: string; store?: boolean };
+
+      expect(params).not.toHaveProperty("previous_response_id");
+      expect(params.store).toBe(true);
+      expect(params.input).toHaveLength(3);
+    });
+
+    it("treats a blank response id as missing and rebuilds the full context", () => {
+      const model = createChainingModel();
+      const params = buildOpenAIResponsesParams(
+        model,
+        {
+          systemPrompt: "system",
+          messages: [makeAnchor(model, "   ", 1), { role: "user", content: "next", timestamp: 2 }],
+          tools: [],
+        } as never,
+        undefined,
+      ) as { input: unknown[]; previous_response_id?: string; store?: boolean };
+
+      expect(params).not.toHaveProperty("previous_response_id");
+      expect(params.store).toBe(true);
+      expect(params.input).toHaveLength(3);
+    });
+
+    it("preserves the ordinary OpenAI Responses store policy when capability is unset", () => {
+      const model = createChainingModel({
+        provider: "openai",
+        id: "gpt-5.5",
+        baseUrl: "https://api.openai.com/v1",
+        compat: { supportsPreviousResponseId: undefined },
+      });
+      const params = buildOpenAIResponsesParams(
+        model,
+        {
+          systemPrompt: "system",
+          messages: [{ role: "user", content: "hello", timestamp: 1 }],
+          tools: [],
+        } as never,
+        undefined,
+      ) as { previous_response_id?: string; store?: boolean };
+
+      expect(params).not.toHaveProperty("previous_response_id");
+      expect(params.store).toBe(false);
     });
   });
 
@@ -5638,6 +5785,215 @@ describe("openai transport stream", () => {
         request.input[2],
       ],
     });
+  });
+
+  it("resets a stale previous response id once with a full stored request", async () => {
+    const model = createPreviousResponseModel();
+    const request = {
+      model: model.id,
+      stream: true as const,
+      previous_response_id: "resp_stale",
+      store: true,
+      input: [{ type: "message", role: "user", content: [] }],
+    };
+    const fallbackRequest = {
+      model: model.id,
+      stream: true as const,
+      store: true,
+      input: [
+        { type: "message", role: "system", content: [] },
+        { type: "message", role: "user", content: [] },
+      ],
+    };
+    const recoveredStream = streamChunks([]);
+    const create = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new OpenAI.BadRequestError(
+          400,
+          {
+            code: "InvalidParameter",
+            message: "Not found previous_response_id: resp_stale",
+            type: "invalid_request_error",
+          },
+          undefined,
+          new Headers(),
+        ),
+      )
+      .mockResolvedValueOnce(recoveredStream);
+    const createFallbackRequest = vi.fn(async () => fallbackRequest);
+
+    await expect(
+      testing.createResponsesStreamWithPreviousResponseRetry({
+        client: { responses: { create } } as never,
+        request,
+        requestOptions: undefined,
+        model,
+        createFallbackRequest,
+      }),
+    ).resolves.toBe(recoveredStream);
+
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[0]?.[0]).toBe(request);
+    expect(create.mock.calls[1]?.[0]).toBe(fallbackRequest);
+    expect(createFallbackRequest).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[1]?.[0]).not.toHaveProperty("previous_response_id");
+    expect(create.mock.calls[1]?.[0]).toHaveProperty("store", true);
+  });
+
+  it("surfaces a failed stale fallback without a third request", async () => {
+    const model = createPreviousResponseModel();
+    const staleError = new OpenAI.BadRequestError(
+      400,
+      {
+        code: "InvalidParameter",
+        message: "Not found previous_response_id: resp_stale",
+        type: "invalid_request_error",
+      },
+      undefined,
+      new Headers(),
+    );
+    const fallbackError = new Error("fallback failed");
+    const create = vi.fn().mockRejectedValueOnce(staleError).mockRejectedValueOnce(fallbackError);
+
+    await expect(
+      testing.createResponsesStreamWithPreviousResponseRetry({
+        client: { responses: { create } } as never,
+        request: {
+          model: model.id,
+          stream: true,
+          previous_response_id: "resp_stale",
+          store: true,
+          input: [],
+        },
+        requestOptions: undefined,
+        model,
+        createFallbackRequest: async () => ({
+          model: model.id,
+          stream: true,
+          store: true,
+          input: [],
+        }),
+      }),
+    ).rejects.toBe(fallbackError);
+
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not reset a stale-id-shaped error when no previous id was sent", async () => {
+    const model = createPreviousResponseModel();
+    const staleError = new OpenAI.BadRequestError(
+      400,
+      {
+        code: "InvalidParameter",
+        message: "Not found previous_response_id: resp_stale",
+        type: "invalid_request_error",
+      },
+      undefined,
+      new Headers(),
+    );
+    const create = vi.fn().mockRejectedValueOnce(staleError);
+    const createFallbackRequest = vi.fn(async () => ({
+      model: model.id,
+      stream: true as const,
+      store: true,
+      input: [],
+    }));
+
+    await expect(
+      testing.createResponsesStreamWithPreviousResponseRetry({
+        client: { responses: { create } } as never,
+        request: { model: model.id, stream: true, store: true, input: [] },
+        requestOptions: undefined,
+        model,
+        createFallbackRequest,
+      }),
+    ).rejects.toBe(staleError);
+
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(createFallbackRequest).not.toHaveBeenCalled();
+  });
+
+  it("uses the response id produced by a successful stale-chain rebuild", async () => {
+    const model = createPreviousResponseModel();
+    const options = { sessionId: "session-a", authProfileId: "profile-a" };
+    const rebuiltStream = streamChunks([
+      { type: "response.created", response: { id: "resp_rebuilt" } },
+      {
+        type: "response.completed",
+        response: { id: "resp_rebuilt", status: "completed" },
+      },
+    ]);
+    const create = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new OpenAI.BadRequestError(
+          400,
+          {
+            code: "InvalidParameter",
+            message: "Not found previous_response_id: resp_stale",
+            type: "invalid_request_error",
+          },
+          undefined,
+          new Headers(),
+        ),
+      )
+      .mockResolvedValueOnce(rebuiltStream);
+    const responseStream = await testing.createResponsesStreamWithPreviousResponseRetry({
+      client: { responses: { create } } as never,
+      request: {
+        model: model.id,
+        stream: true,
+        previous_response_id: "resp_stale",
+        store: true,
+        input: [],
+      },
+      requestOptions: undefined,
+      model,
+      createFallbackRequest: async () => ({
+        model: model.id,
+        stream: true,
+        store: true,
+        input: [{ type: "message", role: "user", content: [] }],
+      }),
+    });
+    const output: OpenAIResponsesOutput = {
+      role: "assistant" as const,
+      content: [],
+      api: model.api,
+      provider: model.provider,
+      model: model.id,
+      responseProvenance: testing.buildOpenAIResponsesReasoningReplayMetadata(model, options),
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "stop",
+      timestamp: 2,
+    };
+
+    await testing.processResponsesStream(responseStream, output, { push: vi.fn() }, model, options);
+    expect(output.responseId).toBe("resp_rebuilt");
+
+    const next = buildOpenAIResponsesParams(
+      model,
+      {
+        systemPrompt: "system",
+        messages: [
+          { role: "user", content: "rebuilt", timestamp: 1 },
+          output,
+          { role: "user", content: "next", timestamp: 3 },
+        ],
+        tools: [],
+      } as never,
+      options,
+    ) as { previous_response_id?: string; store?: boolean };
+    expect(next.previous_response_id).toBe("resp_rebuilt");
+    expect(next.store).toBe(true);
   });
 
   it("normalizes overlong Copilot Responses replay tool ids before dispatch", () => {

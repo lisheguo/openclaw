@@ -1,9 +1,9 @@
 # OpenClaw v2026.7.1-2 定制版
 
 > 本分支是基于 OpenClaw v2026.7.1 的个人定制版本，并非 OpenClaw 官方发行版。  
-> 固定分支：`ark-custom-2026.7.1-2-responses-cache`
+> 固定分支：`fix/dashscope-session-cache-stale-response`
 
-[直接下载 ZIP](https://github.com/lisheguo/openclaw/archive/refs/heads/ark-custom-2026.7.1-2-responses-cache.zip) · [查看合并记录](https://github.com/lisheguo/openclaw/pull/1) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
+[直接下载 ZIP](https://github.com/lisheguo/openclaw/archive/refs/heads/fix/dashscope-session-cache-stale-response.zip) · [查看合并记录](https://github.com/lisheguo/openclaw/pull/1) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
 
 ## 这个定制版增加了什么
 
@@ -11,8 +11,9 @@
 
 指定模型可以显式开启 DashScope 会话缓存，并使用 OpenAI Responses 兼容的 `previous_response_id` 串联同一会话：
 
-- 第一轮请求发送完整上下文。
+- 第一轮请求发送完整上下文，并在 capability 开启时强制 `store=true`。
 - 后续轮次只发送新增消息，并引用上一轮响应 ID。
+- Provider 丢失旧响应 ID 时自动执行一次完整上下文重建，不会无限重试。
 - 工具执行结果继续以 Responses `function_call_output` 格式发送。
 - 默认关闭，只影响明确配置的模型；其他模型不会被自动开启。
 
@@ -24,7 +25,8 @@
 
 - 上下文压缩后的第一轮会重新建立响应链，后续轮次可从新响应继续串联。
 - 只读取当前活动会话分支，不会复用废弃分支中的响应。
-- ARK 输入项目数量保护改为显式配置；未设置 `maxInputItems` 时不自动启用项目数量压缩，原有 token 压缩保持不变。
+- ARK 输入项目数量保护改为 model/provider capability；只有显式设置 `responsesMaxInputItems` 的 Responses 模型才启用。
+- 旧的 `agents.defaults.compaction.maxInputItems` 暂时保留为兼容 fallback，原有 token 压缩保持不变。
 
 ### 4. OpenClaw 可执行的配置维护说明
 
@@ -39,16 +41,18 @@
   models: {
     providers: {
       dashscope: {
-        models: [{
-          id: "qwen-plus",
-          api: "openai-responses",
-          headers: {
-            "x-dashscope-session-cache": "enable",
+        models: [
+          {
+            id: "qwen-plus",
+            api: "openai-responses",
+            headers: {
+              "x-dashscope-session-cache": "enable",
+            },
+            compat: {
+              supportsPreviousResponseId: true,
+            },
           },
-          compat: {
-            supportsPreviousResponseId: true,
-          },
-        }],
+        ],
       },
     },
   },
@@ -57,19 +61,19 @@
 
 不要覆盖模型原有的 `headers` 或 `compat`；只合并新增键。完整规则和回滚步骤见[专用配置文档](docs/providers/dashscope-responses-session-cache.md)。
 
-ARK 1000 项输入保护是独立的可选设置，只有明确需要时才添加：
+ARK 1000 项输入保护是独立 capability，只配置在确实存在 hard limit 的 Responses 模型：
 
 ```json5
 {
-  agents: {
-    defaults: {
-      compaction: {
-        maxInputItems: 1000,
-      },
-    },
+  id: "ark-model",
+  api: "openai-responses",
+  compat: {
+    responsesMaxInputItems: 1000,
   },
 }
 ```
+
+也可在 provider 上设置 `responsesMaxInputItems` 作为模型默认值。解析优先级为 model、provider、legacy `agents.defaults.compaction.maxInputItems`、disabled；旧 Agent 级字段仍可工作，但建议迁移。
 
 ## 云端编译和测试
 

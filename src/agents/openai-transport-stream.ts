@@ -1077,6 +1077,59 @@ async function createResponsesStreamWithEncryptedContentRetry(params: {
   }
 }
 
+function isStalePreviousResponseIdError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const record = error as {
+    status?: unknown;
+    message?: unknown;
+    error?: { message?: unknown };
+    body?: { message?: unknown };
+  };
+  if (record.status !== 400) {
+    return false;
+  }
+  const messages = [record.message, record.error?.message, record.body?.message]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  return messages.includes("not found previous_response_id");
+}
+
+async function createResponsesStreamWithPreviousResponseRetry(params: {
+  client: ResponsesClientLike;
+  request: OpenAIResponsesRequestParams;
+  requestOptions: unknown;
+  model: Model;
+  createFallbackRequest?: () => Promise<OpenAIResponsesRequestParams>;
+}): Promise<AsyncIterable<unknown>> {
+  try {
+    return await createResponsesStreamWithEncryptedContentRetry(params);
+  } catch (error) {
+    // This reset happens only while request creation is still rejected. Once an
+    // AsyncIterable exists, streamed assistant/tool output must never be replayed.
+    if (
+      !params.request.previous_response_id ||
+      !params.createFallbackRequest ||
+      !isStalePreviousResponseIdError(error)
+    ) {
+      throw error;
+    }
+    const fallbackRequest = await params.createFallbackRequest();
+    log.warn(
+      `[responses-session] mode=full-rebuild reason=stale-response-id ` +
+        `provider=${params.model.provider} api=${params.model.api} model=${params.model.id}`,
+    );
+    return await createResponsesStreamWithEncryptedContentRetry({
+      client: params.client,
+      request: fallbackRequest,
+      requestOptions: params.requestOptions,
+      model: params.model,
+    });
+  }
+}
+
 export function resolveAzureOpenAIApiVersion(env = process.env): string {
   return env.AZURE_OPENAI_API_VERSION?.trim() || DEFAULT_AZURE_OPENAI_API_VERSION;
 }
@@ -1156,6 +1209,7 @@ function convertResponsesMessages(
     replayResponsesItemIds?: boolean;
     sessionId?: string;
     authProfileId?: string;
+    skipTransportTransform?: boolean;
   },
 ): ResponseInput {
   const messages: ResponseInput = [];
@@ -1205,12 +1259,11 @@ function convertResponsesMessages(
     }
     return `${normalizedCallId}|${normalizedItemId}`;
   };
-  const transformedMessages = transformTransportMessages(
-    context.messages,
-    model,
-    normalizeToolCallId,
-    { normalizeSameModelToolCallIds: shouldNormalizeSameModelToolCallIds },
-  );
+  const transformedMessages = options?.skipTransportTransform
+    ? context.messages
+    : transformTransportMessages(context.messages, model, normalizeToolCallId, {
+        normalizeSameModelToolCallIds: shouldNormalizeSameModelToolCallIds,
+      });
   const includeSystemPrompt = options?.includeSystemPrompt ?? true;
   if (includeSystemPrompt && context.systemPrompt) {
     messages.push(
@@ -2108,31 +2161,41 @@ export function createOpenAIResponsesTransportStreamFn(): StreamFn {
           turnState?.headers,
           options?.sessionId,
         );
-        let params = buildOpenAIResponsesParams(
-          model,
-          context,
-          responsesOptions,
-          turnState?.metadata,
-        );
-        const nextParams = await options?.onPayload?.(params, model);
-        if (nextParams !== undefined) {
-          params = nextParams as typeof params;
-        }
-        if (!isOpenAICodexResponsesModel(model)) {
-          params = mergeTransportMetadata(params, turnState?.metadata);
-        }
-        params = sanitizeOpenAICodexResponsesParams(
-          model,
-          params as Record<string, unknown>,
-        ) as typeof params;
-        params = sanitizeResponsesImagePayload(params as Record<string, unknown>) as typeof params;
-        if (
-          (options as { openclawCodeModeToolSurface?: unknown } | undefined)
-            ?.openclawCodeModeToolSurface === true
-        ) {
-          enforceCodeModeResponsesToolSurface(params);
-          assertCodeModeResponsesToolSurface(params);
-        }
+        const prepareParams = async (omitPreviousResponseId = false) => {
+          let request = buildOpenAIResponsesParams(
+            model,
+            context,
+            responsesOptions,
+            turnState?.metadata,
+            { omitPreviousResponseId },
+          );
+          const nextRequest = await options?.onPayload?.(request, model);
+          if (nextRequest !== undefined) {
+            request = nextRequest as typeof request;
+          }
+          if (!isOpenAICodexResponsesModel(model)) {
+            request = mergeTransportMetadata(request, turnState?.metadata);
+          }
+          request = sanitizeOpenAICodexResponsesParams(
+            model,
+            request as Record<string, unknown>,
+          ) as typeof request;
+          request = sanitizeResponsesImagePayload(
+            request as Record<string, unknown>,
+          ) as typeof request;
+          if (getCompat(model as OpenAIModeModel).supportsPreviousResponseId === true) {
+            request.store = true;
+          }
+          if (
+            (options as { openclawCodeModeToolSurface?: unknown } | undefined)
+              ?.openclawCodeModeToolSurface === true
+          ) {
+            enforceCodeModeResponsesToolSurface(request);
+            assertCodeModeResponsesToolSurface(request);
+          }
+          return request;
+        };
+        const params = await prepareParams();
         const requestStartedAt = Date.now();
         firstEventAbort = createFirstStreamEventAbortController(options?.signal);
         const requestOptions = buildOpenAISdkRequestOptions(model, firstEventAbort.signal, {
@@ -2144,11 +2207,14 @@ export function createOpenAIResponsesTransportStreamFn(): StreamFn {
             `baseUrl=${formatModelTransportDebugBaseUrl(model.baseUrl)} timeoutMs=${safeDebugValue(requestOptions?.timeout)} ` +
             `apiKey=${apiKey ? "present" : "missing"} ${summarizeResponsesPayload(params)}`,
         );
-        const responseStream = await createResponsesStreamWithEncryptedContentRetry({
+        const responseStream = await createResponsesStreamWithPreviousResponseRetry({
           client,
           request: params,
           requestOptions,
           model,
+          ...(params.previous_response_id
+            ? { createFallbackRequest: async () => await prepareParams(true) }
+            : {}),
         });
         emitModelTransportDebug(
           log,
@@ -2400,6 +2466,7 @@ export function buildOpenAIResponsesParams(
   context: Context,
   options: OpenAIResponsesOptions | undefined,
   metadata?: Record<string, string>,
+  buildOptions?: { omitPreviousResponseId?: boolean },
 ) {
   const isCodexResponses = isOpenAICodexResponsesModel(model);
   const isNativeCodexResponses = usesNativeOpenAICodexResponsesBackend(model);
@@ -2413,15 +2480,15 @@ export function buildOpenAIResponsesParams(
     payloadPolicy.explicitStore !== false && !payloadPolicy.shouldStripStore;
   const replayResponsesItemIds =
     !isNativeCodexResponses && (options?.replayResponsesItemIds ?? policyAllowsReplayIds);
-  const previousResponseAnchor = resolveOpenAIResponsesPreviousResponseAnchor(
-    model,
-    context,
-    options,
-  );
+  const previousResponseAnchor = buildOptions?.omitPreviousResponseId
+    ? undefined
+    : resolveOpenAIResponsesPreviousResponseAnchor(model, context, options);
   const requestContext = previousResponseAnchor
     ? {
         ...context,
-        messages: context.messages.slice(previousResponseAnchor.messageIndex + 1),
+        messages: context.messages
+          .slice(previousResponseAnchor.messageIndex + 1)
+          .filter((message) => message.role === "user" || message.role === "toolResult"),
       }
     : context;
   const messages = convertResponsesMessages(
@@ -2435,6 +2502,7 @@ export function buildOpenAIResponsesParams(
       replayResponsesItemIds,
       authProfileId: options?.authProfileId,
       sessionId: options?.sessionId,
+      skipTransportTransform: Boolean(previousResponseAnchor),
     },
   );
   if (isCodexResponses) {
@@ -2448,9 +2516,7 @@ export function buildOpenAIResponsesParams(
     stream: true,
     prompt_cache_key: promptCacheKey,
     prompt_cache_retention: getPromptCacheRetention(model.baseUrl, cacheRetention),
-    ...(previousResponseAnchor
-      ? { previous_response_id: previousResponseAnchor.responseId }
-      : {}),
+    ...(previousResponseAnchor ? { previous_response_id: previousResponseAnchor.responseId } : {}),
     ...(isCodexResponses
       ? { instructions: resolveOpenAICodexResponsesInstructions(model, context) }
       : {}),
@@ -2533,6 +2599,33 @@ export function buildOpenAIResponsesParams(
     }
   }
   applyOpenAIResponsesPayloadPolicy(params as Record<string, unknown>, payloadPolicy);
+  if (compat.supportsPreviousResponseId === true) {
+    params.store = true;
+  }
+  const sessionMode =
+    compat.supportsPreviousResponseId !== true
+      ? "disabled"
+      : previousResponseAnchor
+        ? "incremental"
+        : "full-rebuild";
+  const sessionReason =
+    sessionMode !== "full-rebuild"
+      ? undefined
+      : buildOptions?.omitPreviousResponseId
+        ? "stale-response-id"
+        : context.messages.some(
+              (message) => message.role === "user" && message.compactionSummary === true,
+            )
+          ? "compaction"
+          : "no-anchor";
+  emitModelTransportDebug(
+    log,
+    `[responses-session] mode=${sessionMode}${sessionReason ? ` reason=${sessionReason}` : ""} ` +
+      `provider=${model.provider} api=${model.api} model=${model.id} ` +
+      `hasPreviousResponseId=${Boolean(params.previous_response_id)} ` +
+      `incrementalMessageCount=${previousResponseAnchor ? requestContext.messages.length : 0} ` +
+      `incrementalItems=${previousResponseAnchor ? messages.length : 0}`,
+  );
   return sanitizeOpenAICodexResponsesParams(
     model,
     params as Record<string, unknown>,
@@ -4628,6 +4721,8 @@ export const testing = {
   normalizeResponsesFailedEvent,
   prepareOpenAIResponsesReasoningItemForReplay,
   createResponsesStreamWithEncryptedContentRetry,
+  createResponsesStreamWithPreviousResponseRetry,
+  isStalePreviousResponseIdError,
   stripResponsesRequestEncryptedContent,
   tagOpenAIResponsesReasoningReplayItem,
   summarizeResponsesFailedNoDetailsObservation,

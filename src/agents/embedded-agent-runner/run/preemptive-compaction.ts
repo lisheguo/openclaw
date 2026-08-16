@@ -432,9 +432,8 @@ export function shouldPreemptivelyCompactBeforePrompt(params: {
     estimatedInputItems >= effectiveMaxInputItems - (effectiveItemsSafetyMargin ?? 0);
 
   let route: PreemptiveCompactionRoute = "fits";
-  // Volcengine Ark (Responses API) hard-caps input items (e.g. 1000); exceeding it rejects the
-  // request with "Maximum of 1000 items allowed in input". Prioritize items overflow so compaction
-  // fires before the hard cap is reached, independent of token budget.
+  // Some Responses providers hard-cap input items. Prioritize a configured item overflow so
+  // compaction fires before the provider rejects the request, independent of token budget.
   if (inputItemsOverflow) {
     route = "compact_items_overflow";
   } else if (overflowTokens > 0) {
@@ -469,6 +468,7 @@ export function shouldPreemptivelyCompactBeforePrompt(params: {
 /** Formats the compact operator log line for one pre-prompt budget check. */
 export function formatPrePromptPrecheckLog(params: {
   result: PreemptiveCompactionDecision;
+  inputItemsLimitSource?: "model" | "provider" | "legacy-agent" | "disabled";
   sessionKey?: string;
   sessionId?: string;
   provider: string;
@@ -492,6 +492,7 @@ export function formatPrePromptPrecheckLog(params: {
     `estimatedInputItems=${result.estimatedInputItems ?? "unknown"} ` +
     `inputItemsLimit=${result.inputItemsLimit ?? "unknown"} ` +
     `inputItemsSafetyMargin=${result.inputItemsSafetyMargin ?? "unknown"} ` +
+    `inputItemsLimitSource=${params.inputItemsLimitSource ?? "disabled"} ` +
     `shouldCompactByItems=${result.shouldCompactByItems ?? false} ` +
     `toolResultReducibleChars=${result.toolResultReducibleChars} ` +
     `reserveTokens=${params.reserveTokens} ` +

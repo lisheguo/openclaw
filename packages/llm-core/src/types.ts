@@ -492,6 +492,11 @@ export interface OpenAIResponsesCompat {
   /** Whether the provider supports `prompt_cache_retention: "24h"`. Default: true. */
   supportsLongCacheRetention?: boolean;
   /**
+   * Maximum number of input items accepted by this Responses model.
+   * Undefined disables item-count based compaction for the model.
+   */
+  responsesMaxInputItems?: number;
+  /**
    * Whether the provider supports stateful Responses chaining with
    * `previous_response_id`. Default: false.
    */

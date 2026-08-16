@@ -50,6 +50,7 @@ type SupportedOpenAIResponsesCompatFields = Pick<
   OpenAIResponsesCompat,
   | "sendSessionIdHeader"
   | "supportsLongCacheRetention"
+  | "responsesMaxInputItems"
   | "supportsPreviousResponseId"
   | "supportsTemperature"
 >;
@@ -226,6 +227,8 @@ export type ModelProviderConfig = {
   contextTokens?: number;
   /** Provider-level default max output tokens. */
   maxTokens?: number;
+  /** Default hard limit for Responses API input items under this provider. */
+  responsesMaxInputItems?: number;
   /** Provider request timeout in seconds. */
   timeoutSeconds?: number;
   /** Optional provider deployment/API region used by provider plugins that expose regional endpoints. */
