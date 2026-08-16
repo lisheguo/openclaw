@@ -1,6 +1,7 @@
-# OpenClaw v2026.7.1-2 定制版
+# OpenClaw v2026.7.1-2-responses-cache.2 定制版
 
-> 本分支是基于 OpenClaw v2026.7.1 的个人定制版本，并非 OpenClaw 官方发行版。  
+> 本分支基于 OpenClaw 官方 v2026.7.1-2，是个人定制版本，并非 OpenClaw 官方发行版。  
+> 定制版本/Git Tag：`v2026.7.1-2-responses-cache.2`  
 > 固定分支：`fix/dashscope-session-cache-stale-response`
 
 [直接下载 ZIP](https://github.com/lisheguo/openclaw/archive/refs/heads/fix/dashscope-session-cache-stale-response.zip) · [查看合并记录](https://github.com/lisheguo/openclaw/pull/1) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
