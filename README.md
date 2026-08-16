@@ -1,3 +1,110 @@
+# OpenClaw v2026.7.1-2 定制版
+
+> 本分支是基于 OpenClaw v2026.7.1 的个人定制版本，并非 OpenClaw 官方发行版。  
+> 固定分支：`ark-custom-2026.7.1-2-responses-cache`
+
+[直接下载 ZIP](https://github.com/lisheguo/openclaw/archive/refs/heads/ark-custom-2026.7.1-2-responses-cache.zip) · [查看合并记录](https://github.com/lisheguo/openclaw/pull/1) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
+
+## 这个定制版增加了什么
+
+### 1. DashScope Responses Session Cache
+
+指定模型可以显式开启 DashScope 会话缓存，并使用 OpenAI Responses 兼容的 `previous_response_id` 串联同一会话：
+
+- 第一轮请求发送完整上下文。
+- 后续轮次只发送新增消息，并引用上一轮响应 ID。
+- 工具执行结果继续以 Responses `function_call_output` 格式发送。
+- 默认关闭，只影响明确配置的模型；其他模型不会被自动开启。
+
+### 2. 严格的会话隔离和安全降级
+
+只有 provider、API 类型、模型 ID、base URL、OpenClaw session ID、auth profile ID、响应 ID 和来源信息全部一致时，才允许复用上一轮响应。任何信息缺失或不一致都会安全降级为完整历史请求，避免跨模型、跨账号、跨端点或跨会话错误复用缓存。
+
+### 3. 压缩边界和会话分支处理
+
+- 上下文压缩后的第一轮会重新建立响应链，后续轮次可从新响应继续串联。
+- 只读取当前活动会话分支，不会复用废弃分支中的响应。
+- ARK 输入项目数量保护改为显式配置；未设置 `maxInputItems` 时不自动启用项目数量压缩，原有 token 压缩保持不变。
+
+### 4. OpenClaw 可执行的配置维护说明
+
+新增 [DashScope Responses Session Cache 配置文档](docs/providers/dashscope-responses-session-cache.md)，既供人阅读，也作为 OpenClaw 后期修改 `openclaw.json` 时的执行约束。它说明了如何安全合并目标模型配置、保留已有字段和凭据、验证、重启、回滚，以及如何避免泄露 API Key。
+
+## 开启 DashScope Session Cache
+
+把下面字段合并到目标模型中。目标模型必须使用 `api: "openai-responses"`：
+
+```json5
+{
+  models: {
+    providers: {
+      dashscope: {
+        models: [{
+          id: "qwen-plus",
+          api: "openai-responses",
+          headers: {
+            "x-dashscope-session-cache": "enable",
+          },
+          compat: {
+            supportsPreviousResponseId: true,
+          },
+        }],
+      },
+    },
+  },
+}
+```
+
+不要覆盖模型原有的 `headers` 或 `compat`；只合并新增键。完整规则和回滚步骤见[专用配置文档](docs/providers/dashscope-responses-session-cache.md)。
+
+ARK 1000 项输入保护是独立的可选设置，只有明确需要时才添加：
+
+```json5
+{
+  agents: {
+    defaults: {
+      compaction: {
+        maxInputItems: 1000,
+      },
+    },
+  },
+}
+```
+
+## 云端编译和测试
+
+推荐在 GitHub Codespaces 中打开本分支，全程在云端操作：
+
+```bash
+corepack enable
+corepack prepare pnpm@11.2.2 --activate
+
+# 当前基线锁文件与 package.json 存在已知不同步，仅在临时测试环境使用
+pnpm install --no-frozen-lockfile
+
+pnpm build
+pnpm ui:build
+pnpm test \
+  src/agents/openai-transport-stream.test.ts \
+  src/agents/embedded-agent-runner/run/preemptive-compaction.test.ts
+
+pnpm tsgo:prod
+pnpm openclaw models status --json
+pnpm gateway:dev
+```
+
+Node.js 要求：22.22.3+、24.15+ 或 25.9+，推荐 Node.js 24。
+
+## 已知基线问题
+
+基线的 `package.json` 已包含 `node-llama-cpp@3.18.1`，但 `pnpm-lock.yaml` 尚未同步，因此冻结锁文件安装会在编译和测试开始前失败。生产依赖审计也包含既有告警。这些问题不是 Responses Session Cache 修改引入，本次定制没有修改相关依赖或锁文件。
+
+## 与官方项目的关系
+
+以上内容只描述此个人定制分支。下面完整保留 OpenClaw 官方项目介绍、安装说明、安全模型和社区信息，便于继续参考上游文档。
+
+---
+
 # 🦞 OpenClaw — Personal AI Assistant
 
 <p align="center">
