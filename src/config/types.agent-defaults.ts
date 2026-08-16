@@ -587,7 +587,7 @@ export type AgentCompactionConfig = {
    * Maximum allowed input items before preemptive compaction triggers. Volcengine Ark
    * Responses API enforces a hard limit of 1000 input items; when the estimated input
    * item count exceeds this threshold minus the safety margin, compaction is triggered
-   * before the model call to avoid a provider-side items-overflow error. Default: 1000.
+   * before the model call to avoid a provider-side items-overflow error. Disabled when omitted.
    */
   maxInputItems?: number;
 };

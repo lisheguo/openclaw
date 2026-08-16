@@ -4863,7 +4863,7 @@ export async function runEmbeddedAttempt(
               contextTokenBudget,
               reserveTokens,
               toolResultMaxChars: promptToolResultMaxChars,
-              maxInputItems: params.config?.agents?.defaults?.compaction?.maxInputItems ?? 1000,
+              maxInputItems: params.config?.agents?.defaults?.compaction?.maxInputItems,
               llmBoundaryTokenPressure: {
                 estimatedPromptTokens: llmBoundaryTokenPressure,
                 source: "llm_boundary_normalized_prompt",

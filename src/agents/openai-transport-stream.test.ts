@@ -3699,6 +3699,279 @@ describe("openai transport stream", () => {
     expect(params).not.toHaveProperty("reasoning_effort");
   });
 
+  describe("opt-in Responses previous_response_id chaining", () => {
+    const createChainingModel = (
+      overrides: Partial<Model<"openai-responses">> = {},
+    ): Model<"openai-responses"> =>
+      ({
+        id: "qwen-plus",
+        name: "Qwen Plus",
+        api: "openai-responses",
+        provider: "dashscope",
+        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128_000,
+        maxTokens: 8192,
+        ...overrides,
+        compat: {
+          supportsPreviousResponseId: true,
+          ...(overrides.compat ?? {}),
+        },
+      }) as Model<"openai-responses">;
+
+    const makeAnchor = (
+      model: Model<"openai-responses">,
+      responseId: string | undefined,
+      timestamp: number,
+      options?: { authProfileId?: string; sessionId?: string },
+      content: Array<Record<string, unknown>> = [{ type: "text", text: "prior answer" }],
+    ) => ({
+      role: "assistant" as const,
+      api: model.api,
+      provider: model.provider,
+      model: model.id,
+      responseId,
+      responseProvenance: testing.buildOpenAIResponsesReasoningReplayMetadata(model, options),
+      content,
+      usage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "stop" as const,
+      timestamp,
+    });
+
+    it("keeps full history and omits previous_response_id when disabled", () => {
+      const enabledModel = createChainingModel();
+      const model = createChainingModel({
+        compat: { supportsPreviousResponseId: false },
+      });
+      const params = buildOpenAIResponsesParams(
+        model,
+        {
+          systemPrompt: "system",
+          messages: [
+            { role: "user", content: "first", timestamp: 1 },
+            makeAnchor(enabledModel, "resp_1", 2),
+            { role: "user", content: "next", timestamp: 3 },
+          ],
+          tools: [],
+        } as never,
+        undefined,
+      ) as { input: Array<{ role?: string }>; previous_response_id?: string };
+
+      expect(params).not.toHaveProperty("previous_response_id");
+      expect(params.input).toHaveLength(4);
+      expect(params.input[0]?.role).toBe("system");
+    });
+
+    it("sends only the incremental user turn after a safe anchor", () => {
+      const model = createChainingModel();
+      const options = { sessionId: "session-a", authProfileId: "dashscope:default" };
+      const params = buildOpenAIResponsesParams(
+        model,
+        {
+          systemPrompt: "system",
+          messages: [
+            { role: "user", content: "first", timestamp: 1 },
+            makeAnchor(model, "resp_1", 2, options),
+            { role: "user", content: "incremental", timestamp: 3 },
+          ],
+          tools: [],
+        } as never,
+        options,
+      ) as {
+        input: Array<{ type?: string; role?: string; content?: unknown }>;
+        previous_response_id?: string;
+      };
+
+      expect(params.previous_response_id).toBe("resp_1");
+      expect(params.input).toEqual([
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "incremental" }],
+        },
+      ]);
+    });
+
+    it("converts an incremental tool result to function_call_output", () => {
+      const model = createChainingModel();
+      const params = buildOpenAIResponsesParams(
+        model,
+        {
+          systemPrompt: "system",
+          messages: [
+            makeAnchor(model, "resp_tool", 1, undefined, [
+              { type: "toolCall", id: "call_1", name: "lookup", arguments: { q: "ark" } },
+            ]),
+            {
+              role: "toolResult",
+              toolCallId: "call_1",
+              toolName: "lookup",
+              content: [{ type: "text", text: "result" }],
+              isError: false,
+              timestamp: 2,
+            },
+          ],
+          tools: [],
+        } as never,
+        undefined,
+      ) as {
+        input: Array<{ type?: string; call_id?: string; output?: unknown }>;
+        previous_response_id?: string;
+      };
+
+      expect(params.previous_response_id).toBe("resp_tool");
+      expect(params.input).toEqual([
+        {
+          type: "function_call_output",
+          call_id: "call_1",
+          output: "result",
+        },
+      ]);
+    });
+
+    it("rejects anchors when provider, model, endpoint, session, or auth changes", () => {
+      const anchorModel = createChainingModel();
+      const anchorOptions = { sessionId: "session-a", authProfileId: "profile-a" };
+      const cases = [
+        {
+          model: createChainingModel({ provider: "other-provider" }),
+          options: anchorOptions,
+        },
+        {
+          model: createChainingModel({ id: "qwen-max" }),
+          options: anchorOptions,
+        },
+        {
+          model: createChainingModel({ baseUrl: "https://other.example/v1" }),
+          options: anchorOptions,
+        },
+        {
+          model: anchorModel,
+          options: { ...anchorOptions, sessionId: "session-b" },
+        },
+        {
+          model: anchorModel,
+          options: { ...anchorOptions, authProfileId: "profile-b" },
+        },
+      ];
+
+      for (const testCase of cases) {
+        const params = buildOpenAIResponsesParams(
+          testCase.model,
+          {
+            systemPrompt: "system",
+            messages: [
+              makeAnchor(anchorModel, "resp_1", 1, anchorOptions),
+              { role: "user", content: "next", timestamp: 2 },
+            ],
+            tools: [],
+          } as never,
+          testCase.options,
+        ) as { input: unknown[]; previous_response_id?: string };
+        expect(params).not.toHaveProperty("previous_response_id");
+        expect(params.input).toHaveLength(3);
+      }
+    });
+
+    it("falls back to full history when no assistant response id exists", () => {
+      const model = createChainingModel();
+      const params = buildOpenAIResponsesParams(
+        model,
+        {
+          systemPrompt: "system",
+          messages: [
+            makeAnchor(model, undefined, 1),
+            { role: "user", content: "next", timestamp: 2 },
+          ],
+          tools: [],
+        } as never,
+        undefined,
+      ) as { input: unknown[]; previous_response_id?: string };
+
+      expect(params).not.toHaveProperty("previous_response_id");
+      expect(params.input).toHaveLength(3);
+    });
+
+    it("resets at compaction and resumes from a post-compaction response", () => {
+      const model = createChainingModel();
+      const compactedMessages = [
+        {
+          role: "user" as const,
+          content: "summary",
+          timestamp: 100,
+          compactionSummary: true,
+        },
+        makeAnchor(model, "resp_before_compaction", 50),
+        { role: "user" as const, content: "first after compaction", timestamp: 150 },
+      ];
+      const firstParams = buildOpenAIResponsesParams(
+        model,
+        { systemPrompt: "system", messages: compactedMessages, tools: [] } as never,
+        undefined,
+      ) as { previous_response_id?: string };
+      expect(firstParams).not.toHaveProperty("previous_response_id");
+
+      const resumedParams = buildOpenAIResponsesParams(
+        model,
+        {
+          systemPrompt: "system",
+          messages: [
+            ...compactedMessages,
+            makeAnchor(model, "resp_after_compaction", 200),
+            { role: "user", content: "continue", timestamp: 220 },
+          ],
+          tools: [],
+        } as never,
+        undefined,
+      ) as { previous_response_id?: string };
+      expect(resumedParams.previous_response_id).toBe("resp_after_compaction");
+    });
+
+    it("uses only the anchor present on the active branch context", () => {
+      const model = createChainingModel();
+      const branchA = {
+        systemPrompt: "system",
+        messages: [
+          makeAnchor(model, "resp_branch_a", 1),
+          { role: "user", content: "A", timestamp: 2 },
+        ],
+        tools: [],
+      };
+      const branchB = {
+        systemPrompt: "system",
+        messages: [
+          makeAnchor(model, "resp_branch_b", 1),
+          { role: "user", content: "B", timestamp: 2 },
+        ],
+        tools: [],
+      };
+
+      expect(
+        (
+          buildOpenAIResponsesParams(model, branchA as never, undefined) as {
+            previous_response_id?: string;
+          }
+        ).previous_response_id,
+      ).toBe("resp_branch_a");
+      expect(
+        (
+          buildOpenAIResponsesParams(model, branchB as never, undefined) as {
+            previous_response_id?: string;
+          }
+        ).previous_response_id,
+      ).toBe("resp_branch_b");
+    });
+  });
+
   it("uses system role instead of developer for responses providers that disable developer role", () => {
     const params = buildOpenAIResponsesParams(
       {

@@ -172,6 +172,7 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
               },
             ],
             timestamp: normalizeCompactionSummaryTimestamp(message.timestamp),
+            compactionSummary: true,
           };
         case "user":
         case "assistant":
