@@ -105,6 +105,97 @@ describe("normalizeToolParameterSchema", () => {
     });
   });
 
+  it("converts TypeBox records for DashScope without mutating other providers", () => {
+    const schema = Type.Object({
+      env: Type.Optional(Type.Record(Type.String(), Type.String())),
+      nested: Type.Array(
+        Type.Object({
+          labels: Type.Record(Type.String(), Type.Number()),
+        }),
+      ),
+    });
+
+    const dashscope = normalizeToolParameterSchema(schema, {
+      modelProvider: "DashScope",
+    }) as {
+      properties?: Record<string, unknown>;
+    };
+    const openai = normalizeToolParameterSchema(schema, {
+      modelProvider: "openai",
+    });
+
+    expect(dashscope.properties?.env).toEqual({
+      type: "object",
+      additionalProperties: { type: "string" },
+    });
+    expect(dashscope.properties?.nested).toEqual({
+      type: "array",
+      items: {
+        type: "object",
+        required: ["labels"],
+        properties: {
+          labels: {
+            type: "object",
+            additionalProperties: { type: "number" },
+          },
+        },
+      },
+    });
+    expect(openai).toEqual(schema);
+    expect(schema.properties.env).toHaveProperty("patternProperties");
+  });
+
+  it("merges multiple DashScope patterns instead of silently taking the first", () => {
+    expect(
+      normalizeToolParameterSchema(
+        {
+          type: "object",
+          properties: {
+            labels: {
+              type: "object",
+              patternProperties: {
+                "^text-": { type: "string" },
+                "^count-": { type: "number" },
+              },
+              additionalProperties: false,
+            },
+          },
+        },
+        { modelProvider: "bailian" },
+      ),
+    ).toEqual({
+      type: "object",
+      properties: {
+        labels: {
+          type: "object",
+          additionalProperties: {
+            anyOf: [{ type: "string" }, { type: "number" }],
+          },
+        },
+      },
+    });
+  });
+
+  it("supports an explicit DashScope schema profile for custom provider names", () => {
+    const schema = {
+      type: "object",
+      patternProperties: {
+        "^(.*)$": { type: "string" },
+      },
+    };
+
+    expect(
+      normalizeToolParameterSchema(schema, {
+        modelProvider: "custom-compatible-endpoint",
+        modelCompat: { toolSchemaProfile: "DashScope" },
+      }),
+    ).toEqual({
+      type: "object",
+      properties: {},
+      additionalProperties: { type: "string" },
+    });
+  });
+
   it("applies explicit unsupported keyword stripping after Gemini cleanup", () => {
     expect(
       normalizeToolParameterSchema(

@@ -1,10 +1,10 @@
-# OpenClaw v2026.7.1-2-responses-cache.2 定制版
+# OpenClaw v2026.7.1-2-responses-cache.3 定制版
 
 > 本分支基于 OpenClaw 官方 v2026.7.1-2，是个人定制版本，并非 OpenClaw 官方发行版。  
-> 定制版本/Git Tag：`v2026.7.1-2-responses-cache.2`  
-> 固定分支：`fix/dashscope-session-cache-stale-response`
+> 定制版本/Git Tag：`v2026.7.1-2-responses-cache.3`  
+> 固定分支：`fix/dashscope-session-cache-pattern-properties`
 
-[直接下载 ZIP](https://github.com/lisheguo/openclaw/archive/refs/heads/fix/dashscope-session-cache-stale-response.zip) · [查看合并记录](https://github.com/lisheguo/openclaw/pull/1) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
+[直接下载 ZIP](https://github.com/lisheguo/openclaw/archive/refs/heads/fix/dashscope-session-cache-pattern-properties.zip) · [查看合并记录](https://github.com/lisheguo/openclaw/pull/1) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
 
 ## 这个定制版增加了什么
 
@@ -33,6 +33,18 @@
 
 新增 [DashScope Responses Session Cache 配置文档](docs/providers/dashscope-responses-session-cache.md)，既供人阅读，也作为 OpenClaw 后期修改 `openclaw.json` 时的执行约束。它说明了如何安全合并目标模型配置、保留已有字段和凭据、验证、重启、回滚，以及如何避免泄露 API Key。
 
+### 5. 百炼工具 Schema 兼容修复
+
+百炼官方确认，Responses Session Cache 请求中的工具定义不支持 `patternProperties`，只支持 `additionalProperties`。本版本在源码层完成兼容转换：
+
+- 仅对 DashScope、百炼、阿里云 provider，或显式设置 `compat.toolSchemaProfile: "dashscope"` 的模型生效。
+- 递归转换嵌套对象、数组和组合 Schema，不修改 OpenAI、Anthropic 等其他 provider。
+- 多个 `patternProperties` 不再像临时补丁那样只取第一个，而是合并成 `additionalProperties.anyOf`。
+- 不处理 `default`、`const`、`enum`、`examples` 内的同名普通数据。
+- 修复 stale `previous_response_id` 后执行 full-rebuild 时，完整工具定义再次触发百炼 400 的问题。
+
+临时修改安装目录 `dist/*.mjs` 的补丁可在部署本版本后移除；源码重新编译后会持续生效。
+
 ## 开启 DashScope Session Cache
 
 把下面字段合并到目标模型中。目标模型必须使用 `api: "openai-responses"`：
@@ -51,6 +63,7 @@
             },
             compat: {
               supportsPreviousResponseId: true,
+              toolSchemaProfile: "dashscope",
             },
           },
         ],

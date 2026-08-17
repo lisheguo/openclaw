@@ -28,6 +28,7 @@ When a user asks you to enable DashScope Responses session chaining, follow thes
      },
      compat: {
        supportsPreviousResponseId: true,
+       toolSchemaProfile: "dashscope",
      },
    }
    ```
@@ -61,6 +62,7 @@ The following is an example target entry. Keep all existing model fields; the im
             // Merge with existing compatibility settings.
             compat: {
               supportsPreviousResponseId: true,
+              toolSchemaProfile: "dashscope",
             },
 
             // Keep name, input, cost, contextWindow, maxTokens, and other fields.
@@ -73,6 +75,21 @@ The following is an example target entry. Keep all existing model fields; the im
 ```
 
 The provider key does not need to be named `dashscope`. Runtime behavior is controlled by the model capability, not by a hard-coded provider name. Only enable it for an endpoint known to support OpenAI Responses `previous_response_id` semantics.
+
+## DashScope tool-schema compatibility
+
+DashScope/Bailian Responses Session Cache currently rejects the JSON Schema keyword `patternProperties` in tool definitions and accepts `additionalProperties` instead. OpenClaw converts it at the provider boundary when either:
+
+- the provider id contains `dashscope`, `bailian`, or `aliyun`; or
+- the model sets `compat.toolSchemaProfile: "dashscope"`.
+
+Always set the explicit profile when the provider uses a custom name. The conversion is recursive and affects schema-bearing locations only. Literal data inside `default`, `const`, `enum`, and `examples` is preserved.
+
+This compatibility step matters especially after a stale `previous_response_id`: OpenClaw performs one full-history rebuild, which sends the complete tool list again. Without the conversion, that rebuild can fail with a second 400 even though stale-response recovery itself worked.
+
+Do not add `patternProperties` to `unsupportedToolSchemaKeywords`. Stripping the keyword would discard the value schema. Use the DashScope tool-schema profile so OpenClaw converts it to `additionalProperties`.
+
+When an OpenClaw agent edits `openclaw.json`, it must preserve any existing `toolSchemaProfile` value. If the value is not `dashscope`, stop and ask before replacing it because a model can have only one schema profile.
 
 ## Safe matching rules
 
@@ -114,6 +131,7 @@ After editing, verify all of the following:
 - the target model still has `api: "openai-responses"`
 - the target model has exactly one `x-dashscope-session-cache` header
 - `compat.supportsPreviousResponseId` is `true` only on intended models
+- custom-named DashScope providers set `compat.toolSchemaProfile` to `"dashscope"`
 - existing `headers` and `compat` keys were preserved
 - no `store` or `cache_control` field was added
 - unrelated providers and models are unchanged

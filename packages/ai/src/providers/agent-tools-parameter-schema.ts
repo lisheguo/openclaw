@@ -519,6 +519,80 @@ const SCHEMA_ARRAY_KEYS = new Set(["allOf", "anyOf", "items", "oneOf", "prefixIt
 
 const SCHEMA_LITERAL_KEYS = new Set(["const", "default", "enum", "examples"]);
 
+/**
+ * DashScope Responses tool definitions do not accept patternProperties.
+ * Convert schema-bearing occurrences to additionalProperties while leaving
+ * literal payloads (default, enum, examples, const) untouched.
+ */
+function convertPatternPropertiesForDashScope(schema: unknown): unknown {
+  if (Array.isArray(schema)) {
+    let changed = false;
+    const converted = schema.map((entry) => {
+      const next = convertPatternPropertiesForDashScope(entry);
+      changed ||= next !== entry;
+      return next;
+    });
+    return changed ? converted : schema;
+  }
+  if (!isSchemaRecord(schema)) {
+    return schema;
+  }
+
+  let changed = false;
+  const converted: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (key === "patternProperties") {
+      changed = true;
+      continue;
+    }
+    if (SCHEMA_LITERAL_KEYS.has(key)) {
+      converted[key] = value;
+      continue;
+    }
+    if (SCHEMA_MAP_KEYS.has(key) && isSchemaRecord(value)) {
+      let mapChanged = false;
+      const next = Object.fromEntries(
+        Object.entries(value).map(([entryKey, entryValue]) => {
+          const convertedEntry = convertPatternPropertiesForDashScope(entryValue);
+          mapChanged ||= convertedEntry !== entryValue;
+          return [entryKey, convertedEntry];
+        }),
+      );
+      converted[key] = mapChanged ? next : value;
+      changed ||= mapChanged;
+      continue;
+    }
+    if (SCHEMA_OBJECT_KEYS.has(key) && isSchemaRecord(value)) {
+      const next = convertPatternPropertiesForDashScope(value);
+      converted[key] = next;
+      changed ||= next !== value;
+      continue;
+    }
+    if (SCHEMA_ARRAY_KEYS.has(key) && Array.isArray(value)) {
+      const next = convertPatternPropertiesForDashScope(value);
+      converted[key] = next;
+      changed ||= next !== value;
+      continue;
+    }
+    converted[key] = value;
+  }
+
+  const patternSchemas = isSchemaRecord(schema.patternProperties)
+    ? Object.values(schema.patternProperties).map(convertPatternPropertiesForDashScope)
+    : [];
+  if (patternSchemas.length > 0) {
+    const additional = converted.additionalProperties;
+    if (additional === undefined || additional === false) {
+      converted.additionalProperties =
+        patternSchemas.length === 1 ? patternSchemas[0] : { anyOf: patternSchemas };
+    } else if (additional !== true && isSchemaRecord(additional)) {
+      converted.additionalProperties = { anyOf: [additional, ...patternSchemas] };
+    }
+  }
+
+  return changed ? converted : schema;
+}
+
 function tryResolveLocalRef(
   ref: string,
   defs: SchemaDefs | undefined,
@@ -829,6 +903,11 @@ function normalizeToolParameterSchemaUncached(
     isGeminiModelId(normalizedModelId) ||
     normalizedToolSchemaProfile === "gemini";
   const isAnthropicProvider = normalizedProvider.includes("anthropic");
+  const isDashScopeProvider =
+    normalizedProvider.includes("dashscope") ||
+    normalizedProvider.includes("bailian") ||
+    normalizedProvider.includes("aliyun") ||
+    normalizedToolSchemaProfile === "dashscope";
   const unsupportedToolSchemaKeywords = resolveUnsupportedToolSchemaKeywords(options?.modelCompat);
   const omitEmptyArrayItems = shouldOmitEmptyArrayItems(options?.modelCompat);
 
@@ -837,8 +916,11 @@ function normalizeToolParameterSchemaUncached(
     const arrayItemsCompatibleSchema = omitEmptyArrayItems
       ? stripEmptyArrayItemsFromArraySchemas(normalizedSchema)
       : normalizedSchema;
+    const providerCompatibleSchema = isDashScopeProvider
+      ? convertPatternPropertiesForDashScope(arrayItemsCompatibleSchema)
+      : arrayItemsCompatibleSchema;
     if (isGeminiProvider && !isAnthropicProvider) {
-      const geminiCompatibleSchema = cleanSchemaForGemini(arrayItemsCompatibleSchema);
+      const geminiCompatibleSchema = cleanSchemaForGemini(providerCompatibleSchema);
       return unsupportedToolSchemaKeywords.size > 0
         ? (stripUnsupportedSchemaKeywords(
             geminiCompatibleSchema,
@@ -848,11 +930,11 @@ function normalizeToolParameterSchemaUncached(
     }
     if (unsupportedToolSchemaKeywords.size > 0) {
       return stripUnsupportedSchemaKeywords(
-        arrayItemsCompatibleSchema,
+        providerCompatibleSchema,
         unsupportedToolSchemaKeywords,
       ) as TSchema;
     }
-    return arrayItemsCompatibleSchema as TSchema;
+    return providerCompatibleSchema as TSchema;
   }
 
   const conditionalKey = getTopLevelConditionalKey(schemaRecord);
