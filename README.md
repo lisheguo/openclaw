@@ -4,7 +4,7 @@
 > 定制版本/Git Tag：`v2026.7.1-2-responses-cache.4`
 > 固定分支：`fix/ark-stale-response-id`
 
-[直接下载 ZIP](https://github.com/lisheguo/openclaw/archive/refs/tags/v2026.7.1-2-responses-cache.4.zip) · [查看分支](https://github.com/lisheguo/openclaw/tree/fix/ark-stale-response-id) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
+[直接下载 ZIP](https://github.com/lisheguo/openclaw/archive/refs/tags/v2026.7.1-2-responses-cache.4.zip) · [查看分支](https://github.com/lisheguo/openclaw/tree/fix/ark-stale-response-id) · [Ark .4 修复与升级测试说明](docs/providers/ark-responses-stale-response-id-v2026.7.1-2-responses-cache.4.md) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
 
 ## 这个定制版增加了什么
 
