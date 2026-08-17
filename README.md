@@ -1,14 +1,28 @@
-# OpenClaw v2026.7.1-2-responses-cache.3 定制版
+# OpenClaw v2026.7.1-2-responses-cache.4 定制版
 
-> 本分支基于 OpenClaw 官方 v2026.7.1-2，是个人定制版本，并非 OpenClaw 官方发行版。  
-> 定制版本/Git Tag：`v2026.7.1-2-responses-cache.3`  
-> 固定分支：`fix/dashscope-session-cache-pattern-properties`
+> 本分支基于 OpenClaw 官方 v2026.7.1-2，是个人定制版本，并非 OpenClaw 官方发行版。
+> 定制版本/Git Tag：`v2026.7.1-2-responses-cache.4`
+> 固定分支：`fix/ark-stale-response-id`
 
-[直接下载 ZIP](https://github.com/lisheguo/openclaw/archive/refs/heads/fix/dashscope-session-cache-pattern-properties.zip) · [查看合并记录](https://github.com/lisheguo/openclaw/pull/1) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
+[直接下载 ZIP](https://github.com/lisheguo/openclaw/archive/refs/tags/v2026.7.1-2-responses-cache.4.zip) · [查看分支](https://github.com/lisheguo/openclaw/tree/fix/ark-stale-response-id) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
 
 ## 这个定制版增加了什么
 
-### 1. DashScope Responses Session Cache
+### 1. Ark stale response ID 自动恢复
+
+Ark（火山方舟）在 `previous_response_id` 过期或不存在时会返回
+`InvalidParameter.PreviousResponseNotFound`。本版本会把该错误准确识别为
+`stale-response-id`，自动执行一次不带旧 ID 的 `full-rebuild`，成功后保存新的
+`response.id` 并恢复后续增量会话。
+
+- 支持 Ark SDK 错误对象、JSON 字符串 body 和 `response.data` 嵌套错误体。
+- 保留百炼原有的 `Not found previous_response_id` 识别逻辑。
+- 普通工具 Schema 400、401、429、500 和其他参数错误不会误触发重建。
+- full-rebuild 只执行一次，避免失效 ID 导致循环重试。
+
+无需增加 Ark 配置；继续使用现有 `openai-responses` Provider 配置即可。
+
+### 2. DashScope Responses Session Cache
 
 指定模型可以显式开启 DashScope 会话缓存，并使用 OpenAI Responses 兼容的 `previous_response_id` 串联同一会话：
 

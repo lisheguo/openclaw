@@ -1081,20 +1081,56 @@ function isStalePreviousResponseIdError(error: unknown): boolean {
   if (!error || typeof error !== "object") {
     return false;
   }
-  const record = error as {
-    status?: unknown;
-    message?: unknown;
-    error?: { message?: unknown };
-    body?: { message?: unknown };
+
+  const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+    value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined;
+  const parseRecord = (value: unknown): Record<string, unknown> | undefined => {
+    if (typeof value !== "string") {
+      return asRecord(value);
+    }
+    try {
+      return asRecord(JSON.parse(value) as unknown);
+    } catch {
+      return undefined;
+    }
   };
-  if (record.status !== 400) {
+  const strings = (values: unknown[]): string =>
+    values.filter((value): value is string => typeof value === "string").join(" ");
+
+  const record = error as Record<string, unknown>;
+  const response = asRecord(record.response);
+  const status = record.status ?? record.statusCode ?? response?.status;
+  if (status !== 400) {
     return false;
   }
-  const messages = [record.message, record.error?.message, record.body?.message]
-    .filter((value): value is string => typeof value === "string")
-    .join(" ")
-    .toLowerCase();
-  return messages.includes("not found previous_response_id");
+
+  const body = parseRecord(record.body) ?? parseRecord(response?.data);
+  const nestedError = asRecord(record.error) ?? asRecord(body?.error);
+  const code = strings([record.code, nestedError?.code, body?.code]);
+  if (code.includes("InvalidParameter.PreviousResponseNotFound")) {
+    return true;
+  }
+
+  const param = strings([record.param, nestedError?.param, body?.param]).toLowerCase();
+  const messages = strings([
+    record.message,
+    nestedError?.message,
+    body?.message,
+    typeof record.body === "string" ? record.body : undefined,
+  ]).toLowerCase();
+
+  if (messages.includes("not found previous_response_id")) {
+    return true;
+  }
+  if (/previous response with id\b.*\bnot found\b/i.test(messages)) {
+    return true;
+  }
+  return (
+    param.includes("previous_response_id") &&
+    /\b(not found|expired|no longer exists|does not exist)\b/i.test(messages)
+  );
 }
 
 async function createResponsesStreamWithPreviousResponseRetry(params: {
@@ -4700,6 +4736,7 @@ function hasOpenAICompletionsReasoningUsageActivity(
 }
 
 export const testing = {
+  isStalePreviousResponseIdError,
   getCompat,
   assertCodeModeResponsesToolSurface,
   buildOpenAIClientHeaders,
@@ -4722,7 +4759,6 @@ export const testing = {
   prepareOpenAIResponsesReasoningItemForReplay,
   createResponsesStreamWithEncryptedContentRetry,
   createResponsesStreamWithPreviousResponseRetry,
-  isStalePreviousResponseIdError,
   stripResponsesRequestEncryptedContent,
   tagOpenAIResponsesReasoningReplayItem,
   summarizeResponsesFailedNoDetailsObservation,
