@@ -4,7 +4,7 @@
 > 目标版本：`v2026.7.1-2-responses-cache.5`（Tag 尚未发布）
 > 开发分支：`ark-custom-2026.7.1-2-responses-cache.5`
 
-[下载开发分支 ZIP](https://github.com/lisheguo/openclaw/archive/refs/heads/ark-custom-2026.7.1-2-responses-cache.5.zip) · [查看开发分支](https://github.com/lisheguo/openclaw/tree/ark-custom-2026.7.1-2-responses-cache.5) · [Kimi 原生工具 ID 配置说明](docs/providers/ark-kimi-native-responses-tool-call-ids.md) · [Ark .4 修复与升级测试说明](docs/providers/ark-responses-stale-response-id-v2026.7.1-2-responses-cache.4.md) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
+[下载开发分支 ZIP](https://github.com/lisheguo/openclaw/archive/refs/heads/ark-custom-2026.7.1-2-responses-cache.5.zip) · [查看开发分支](https://github.com/lisheguo/openclaw/tree/ark-custom-2026.7.1-2-responses-cache.5) · [.5 升级与验收说明](docs/providers/ark-kimi-responses-v2026.7.1-2-responses-cache.5.md) · [Kimi 原生工具 ID 配置说明](docs/providers/ark-kimi-native-responses-tool-call-ids.md) · [Ark .4 修复与升级测试说明](docs/providers/ark-responses-stale-response-id-v2026.7.1-2-responses-cache.4.md) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
 
 ## 这个定制版增加了什么
 

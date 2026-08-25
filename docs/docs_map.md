@@ -7295,6 +7295,57 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Supported features
   - H2: Related
 
+## providers/ark-kimi-native-responses-tool-call-ids.md
+
+- Route: /providers/ark-kimi-native-responses-tool-call-ids
+- Headings:
+  - H1: Ark Kimi native Responses tool call IDs
+  - H2: Configuration
+  - H2: Runtime behavior
+  - H2: Verification
+  - H2: Rollback
+
+## providers/ark-kimi-responses-v2026.7.1-2-responses-cache.5.md
+
+- Route: /providers/ark-kimi-responses-v2026.7.1-2-responses-cache.5
+- Headings:
+  - H1: Upgrade and validate Ark Kimi Responses cache .5
+  - H2: Before you begin
+  - H2: Upgrade from .4
+  - H2: Configure only the Ark Kimi model
+  - H2: Run source regression tests
+  - H2: Validate Ark Kimi end to end
+  - H3: Round 1: establish the chain
+  - H3: Round 2: continue incrementally
+  - H3: Round 3: restart and replay
+  - H3: Round 4: run the control model
+  - H2: Validate overflow compaction
+  - H2: Check retained .4 behavior
+  - H2: Acceptance record
+  - H2: Roll back
+  - H2: See also
+
+## providers/ark-responses-stale-response-id-v2026.7.1-2-responses-cache.4.md
+
+- Route: /providers/ark-responses-stale-response-id-v2026.7.1-2-responses-cache.4
+- Headings:
+  - H1: Ark Responses stale response ID 修复与升级测试说明
+  - H2: 1. 修复目标
+  - H2: 2. .4 的处理方式
+  - H2: 3. 不会被误判的错误
+  - H2: 4. 升级方式
+  - H2: 5. 配置要求
+  - H2: 6. 升级后测试清单
+  - H3: 6.1 基础健康检查
+  - H3: 6.2 Ark 正常增量会话
+  - H3: 6.3 Ark stale ID 恢复
+  - H3: 6.4 百炼回归
+  - H3: 6.5 负例回归
+  - H2: 7. 源码自动化验证
+  - H2: 8. 验收判定
+  - H2: 9. 回滚
+  - H2: 10. 相关链接
+
 ## providers/azure-speech.md
 
 - Route: /providers/azure-speech
@@ -7400,6 +7451,18 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H3: Per-capability keys
   - H2: Workflow details
   - H2: Related
+
+## providers/dashscope-responses-session-cache.md
+
+- Route: /providers/dashscope-responses-session-cache
+- Headings:
+  - H2: Agent execution contract
+  - H2: Required model patch
+  - H2: DashScope tool-schema compatibility
+  - H2: Safe matching rules
+  - H2: Optional Responses item-limit protection
+  - H2: Verification checklist
+  - H2: Rollback
 
 ## providers/deepgram.md
 

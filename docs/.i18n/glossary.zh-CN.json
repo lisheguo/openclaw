@@ -4,6 +4,30 @@
     "target": "OpenClaw"
   },
   {
+    "source": "Ark Kimi native Responses tool call IDs",
+    "target": "Ark Kimi 原生 Responses 工具调用 ID"
+  },
+  {
+    "source": "Ark Kimi Responses cache .5 upgrade and acceptance",
+    "target": "Ark Kimi Responses cache .5 升级与验收"
+  },
+  {
+    "source": "Ark stale response ID recovery",
+    "target": "Ark 过期响应 ID 恢复"
+  },
+  {
+    "source": "Bun",
+    "target": "Bun"
+  },
+  {
+    "source": "Configuration",
+    "target": "配置"
+  },
+  {
+    "source": "DashScope Responses session cache",
+    "target": "DashScope Responses 会话缓存"
+  },
+  {
     "source": "macOS platform notes",
     "target": "macOS 平台说明"
   },
