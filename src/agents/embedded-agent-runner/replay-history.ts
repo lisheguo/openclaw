@@ -807,6 +807,7 @@ export async function sanitizeSessionHistory(params: {
           downgradeOpenAIReasoningBlocks(openAIRepairedToolCalls, {
             dropReplayableReasoning: modelChanged,
           }),
+          { preserveNativeResponsesToolCallIds: policy.preserveNativeResponsesToolCallIds },
         ),
       )
     : sanitizedToolCalls;

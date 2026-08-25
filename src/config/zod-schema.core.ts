@@ -226,6 +226,7 @@ const ModelCompatSchema = z
     supportsReasoningEffort: z.boolean().optional(),
     supportsTemperature: z.boolean().optional(),
     supportsPreviousResponseId: z.boolean().optional(),
+    preserveNativeResponsesToolCallIds: z.boolean().optional(),
     responsesMaxInputItems: z.number().int().positive().optional(),
     supportsUsageInStreaming: z.boolean().optional(),
     supportsTools: z.boolean().optional(),

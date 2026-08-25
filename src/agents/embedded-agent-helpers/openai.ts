@@ -194,7 +194,16 @@ function createOpenAIResponsesToolCallIdResolver(): {
  * normalizer for same-model replay, then splits persisted `call_id|fc_id`
  * pairs directly into the provider payload, so OpenClaw must normalize here.
  */
-export function normalizeOpenAIResponsesToolCallIds(messages: AgentMessage[]): AgentMessage[] {
+export function normalizeOpenAIResponsesToolCallIds(
+  messages: AgentMessage[],
+  options?: { preserveNativeResponsesToolCallIds?: boolean },
+): AgentMessage[] {
+  if (options?.preserveNativeResponsesToolCallIds === true) {
+    // Provider-native Responses tool call ids must round-trip unchanged when
+    // the provider validates replayed call ids against its own issued ids
+    // (e.g. under previous_response_id chaining). Skip OpenAI-shape rewrite.
+    return messages;
+  }
   let changed = false;
   const resolver = createOpenAIResponsesToolCallIdResolver();
   const rewrittenMessages: AgentMessage[] = [];

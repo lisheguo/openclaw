@@ -1307,4 +1307,55 @@ describe("sanitizeOpenAIResponsesReplayForStream", () => {
     expect(danglingResult.isError).toBe(true);
     expect(danglingResult.content).toEqual([{ type: "text", text: "aborted" }]);
   });
+
+  it("preserves native Responses tool call IDs when preserveNativeResponsesToolCallIds=true (live continuation regression)", () => {
+    // This test verifies that native tool call IDs survive the live replay
+    // normalization pipeline when preserveNativeResponsesToolCallIds=true.
+    // There is no replayable rs_* reasoning metadata, so the |fc_* item
+    // suffix is downgraded and the final id must be the native call part
+    // `process_57` — never `call_process_57_...`, never `process57`.
+    const messages: AgentMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "process_57|fc_native_57",
+            name: "bash",
+            arguments: { command: "echo hello" },
+          },
+        ],
+      } as never,
+      {
+        role: "toolResult",
+        toolCallId: "process_57|fc_native_57",
+        toolName: "bash",
+        content: [{ type: "text", text: "hello" }],
+        isError: false,
+      } as never,
+    ];
+
+    const out = sanitizeOpenAIResponsesReplayForStream(messages, {
+      preserveNativeResponsesToolCallIds: true,
+    });
+
+    const assistant = out[0] as Extract<AgentMessage, { role: "assistant" }>;
+    const toolCall = assistant.content.find(
+      (block) =>
+        Boolean(block) &&
+        typeof block === "object" &&
+        (block as { type?: unknown }).type === "toolCall" &&
+        typeof (block as { id?: unknown }).id === "string",
+    ) as { id: string } | undefined;
+
+    // Native call id must be kept exactly (fc_* suffix downgraded, no rewrite)
+    expect(toolCall?.id).toBe("process_57");
+    expect(toolCall?.id).not.toMatch(/^call_/);
+    expect(toolCall?.id).not.toBe("process57");
+    expect(toolCall?.id).not.toBe("process_57|fc_native_57");
+
+    // Tool result must align with the preserved native id
+    const toolResult = out[1] as Extract<AgentMessage, { role: "toolResult" }>;
+    expect(toolResult.toolCallId).toBe("process_57");
+  });
 });

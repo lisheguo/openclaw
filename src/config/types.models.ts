@@ -52,6 +52,7 @@ type SupportedOpenAIResponsesCompatFields = Pick<
   | "supportsLongCacheRetention"
   | "responsesMaxInputItems"
   | "supportsPreviousResponseId"
+  | "preserveNativeResponsesToolCallIds"
   | "supportsTemperature"
 >;
 

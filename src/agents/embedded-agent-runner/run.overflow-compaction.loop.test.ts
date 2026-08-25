@@ -240,6 +240,96 @@ describe("overflow compaction in run loop", () => {
     expect(result.meta.error).toBeUndefined();
   });
 
+  it("continues from transcript after in-attempt compaction persisted the inbound message", async () => {
+    mockedRunEmbeddedAttempt
+      .mockImplementationOnce(async (attemptParams) => {
+        (
+          attemptParams as {
+            onUserMessagePersisted?: (message: { role: "user"; content: string }) => void;
+          }
+        ).onUserMessagePersisted?.({ role: "user", content: baseParams.prompt });
+        return makeAttemptResult({
+          promptError: makeOverflowError(),
+          compactionCount: 1,
+          preflightRecovery: { route: "compact_only" },
+        });
+      })
+      .mockResolvedValueOnce(makeAttemptResult({ promptError: null }));
+
+    const result = await runEmbeddedAgent({
+      ...baseParams,
+      currentMessageId: "telegram-msg-in-attempt-compaction",
+    });
+
+    expect(mockedCompactDirect).not.toHaveBeenCalled();
+    expect(mockedRunEmbeddedAttempt).toHaveBeenCalledTimes(2);
+    expectRetryContinuesFromTranscript();
+    expect(result.meta.error).toBeUndefined();
+  });
+
+  it("restores overflow compaction budget after a non-overflow retry", async () => {
+    const overflowError = makeOverflowError();
+    const reasoningOnlyAssistant = {
+      role: "assistant",
+      stopReason: "end_turn",
+      provider: "openai",
+      model: "gpt-5.4",
+      content: [
+        {
+          type: "thinking",
+          thinking: "internal reasoning",
+          thinkingSignature: JSON.stringify({ id: "rs_overflow_reset", type: "reasoning" }),
+        },
+      ],
+    } as unknown as EmbeddedRunAttemptResult["lastAssistant"];
+
+    mockedResolveModelAsync.mockResolvedValue({
+      model: {
+        id: "gpt-5.4",
+        provider: "openai",
+        contextWindow: 200000,
+        api: "openai-responses",
+        reasoning: true,
+      },
+      error: null,
+      authStorage: { setRuntimeApiKey: vi.fn() },
+      modelRegistry: {},
+    });
+    mockedRunEmbeddedAttempt
+      .mockResolvedValueOnce(makeAttemptResult({ promptError: overflowError }))
+      .mockResolvedValueOnce(makeAttemptResult({ promptError: overflowError }))
+      .mockResolvedValueOnce(makeAttemptResult({ promptError: overflowError }))
+      .mockResolvedValueOnce(
+        makeAttemptResult({
+          assistantTexts: [],
+          lastAssistant: reasoningOnlyAssistant,
+        }),
+      )
+      .mockResolvedValueOnce(makeAttemptResult({ promptError: overflowError }))
+      .mockResolvedValueOnce(makeAttemptResult({ promptError: null }));
+    mockedCompactDirect
+      .mockResolvedValueOnce(makeCompactionSuccess({ summary: "first compaction" }))
+      .mockResolvedValueOnce(makeCompactionSuccess({ summary: "second compaction" }))
+      .mockResolvedValueOnce(makeCompactionSuccess({ summary: "third compaction" }))
+      .mockResolvedValueOnce(makeCompactionSuccess({ summary: "new recovery chain" }));
+
+    const result = await runEmbeddedAgent({
+      ...baseParams,
+      provider: "openai",
+      model: "gpt-5.4",
+      runId: "run-overflow-compaction-budget-reset",
+    });
+
+    expect(mockedRunEmbeddedAttempt).toHaveBeenCalledTimes(6);
+    expect(mockedCompactDirect).toHaveBeenCalledTimes(4);
+    expect(
+      mockedLog.warn.mock.calls
+        .map((call) => String(call[0]))
+        .filter((message) => message.includes("context overflow detected (attempt 1/3)")),
+    ).toHaveLength(2);
+    expect(result.meta.error).toBeUndefined();
+  });
+
   it("does not suppress the next user turn when precheck overflow never persisted it", async () => {
     // Precheck overflow happens before the inbound message enters the transcript,
     // so the retry should still persist the original prompt.

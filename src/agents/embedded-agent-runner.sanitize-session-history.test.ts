@@ -7,6 +7,7 @@ import type {
   Usage,
 } from "openclaw/plugin-sdk/llm";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ProviderRuntimeModel } from "../plugins/provider-runtime-model.types.js";
 import { OPENCLAW_TRANSCRIPT_ARTIFACT_API } from "../shared/transcript-only-openclaw-assistant.js";
 import {
   expectOpenAIResponsesStrictSanitizeCall,
@@ -135,6 +136,22 @@ let sanitizeSessionHistory: SanitizeSessionHistoryFn;
 let mockedHelpers: SanitizeSessionHistoryHarness["mockedHelpers"];
 let testTimestamp = 1;
 const nextTimestamp = () => testTimestamp++;
+
+function makeKimiResponsesModel(): ProviderRuntimeModel {
+  return {
+    id: "kimi-k3",
+    name: "Kimi K3",
+    provider: "volcengine-agent-plan",
+    api: "openai-responses",
+    baseUrl: "https://example.invalid",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 256_000,
+    maxTokens: 16_384,
+    compat: { preserveNativeResponsesToolCallIds: true },
+  };
+}
 
 // Keep session-transcript-repair real: it is a pure repair boundary, and these
 // tests should fail if the shared sanitizer stops passing simple messages.
@@ -1011,6 +1028,7 @@ describe("sanitizeSessionHistory", () => {
           sanitizeMode: "images-only",
           sanitizeToolCallIds: false,
           preserveNativeAnthropicToolUseIds: false,
+          preserveNativeResponsesToolCallIds: false,
           repairToolUseResultPairing: false,
           preserveSignatures: false,
           sanitizeThinkingSignatures: false,
@@ -1470,6 +1488,7 @@ describe("sanitizeSessionHistory", () => {
       sanitizeToolCallIds: true,
       toolCallIdMode: "strict",
       preserveNativeAnthropicToolUseIds: true,
+      preserveNativeResponsesToolCallIds: false,
       repairToolUseResultPairing: true,
       preserveSignatures: true,
       sanitizeThinkingSignatures: false,
@@ -2134,6 +2153,7 @@ describe("sanitizeSessionHistory", () => {
         sanitizeToolCallIds: true,
         toolCallIdMode: "strict",
         preserveNativeAnthropicToolUseIds: true,
+        preserveNativeResponsesToolCallIds: false,
         repairToolUseResultPairing: true,
         preserveSignatures: true,
         sanitizeThoughtSignatures: undefined,
@@ -2271,6 +2291,7 @@ describe("sanitizeSessionHistory", () => {
           sanitizeToolCallIds: true,
           toolCallIdMode: "strict",
           preserveNativeAnthropicToolUseIds: false,
+          preserveNativeResponsesToolCallIds: false,
           repairToolUseResultPairing: true,
           preserveSignatures: false,
           sanitizeThinkingSignatures: false,
@@ -2485,6 +2506,7 @@ describe("sanitizeSessionHistory", () => {
       sanitizeToolCallIds: true,
       toolCallIdMode: "strict",
       preserveNativeAnthropicToolUseIds: true,
+      preserveNativeResponsesToolCallIds: false,
       repairToolUseResultPairing: true,
       preserveSignatures: true,
       sanitizeThoughtSignatures: undefined,
@@ -2607,6 +2629,7 @@ describe("sanitizeSessionHistory", () => {
         sanitizeToolCallIds: true,
         toolCallIdMode: "strict",
         preserveNativeAnthropicToolUseIds: false,
+        preserveNativeResponsesToolCallIds: false,
         repairToolUseResultPairing: true,
         preserveSignatures: false,
         sanitizeThinkingSignatures: false,
@@ -2657,6 +2680,7 @@ describe("sanitizeSessionHistory", () => {
         sanitizeToolCallIds: true,
         toolCallIdMode: "strict",
         preserveNativeAnthropicToolUseIds: false,
+        preserveNativeResponsesToolCallIds: false,
         repairToolUseResultPairing: true,
         preserveSignatures: false,
         sanitizeThinkingSignatures: false,
@@ -2700,6 +2724,7 @@ describe("sanitizeSessionHistory", () => {
         sanitizeToolCallIds: true,
         toolCallIdMode: "strict",
         preserveNativeAnthropicToolUseIds: false,
+        preserveNativeResponsesToolCallIds: false,
         repairToolUseResultPairing: true,
         preserveSignatures: false,
         sanitizeThinkingSignatures: false,
@@ -2742,6 +2767,7 @@ describe("sanitizeSessionHistory", () => {
         sanitizeToolCallIds: true,
         toolCallIdMode: "strict",
         preserveNativeAnthropicToolUseIds: false,
+        preserveNativeResponsesToolCallIds: false,
         repairToolUseResultPairing: true,
         preserveSignatures: false,
         sanitizeThinkingSignatures: false,
@@ -2758,6 +2784,110 @@ describe("sanitizeSessionHistory", () => {
     expect(thinkingBlocks).toHaveLength(1);
     expect((thinkingBlocks[0] as { thinkingSignature?: string }).thinkingSignature).toBe(
       "sig_bedrock",
+    );
+  });
+
+  it("preserves native Responses tool call IDs when preserveNativeResponsesToolCallIds=true (Root Cause 2 regression)", async () => {
+    // Root Cause 2 verification: replay used to mangle provider-native
+    // `call_id|item_id` pairings (`process_57|fc_native_57`) into `process57`
+    // (generic sanitizer) or `call_process_57_...` (Responses normalizer),
+    // causing HTTP 400 on the provider. With preserve=true the full history
+    // pipeline must yield the native call id `process_57` for both the
+    // assistant toolCall and the toolResult — never `process57` / `call_*`.
+    const messages = castAgentMessages([
+      makeUserMessage("run bash"),
+      makeAssistantMessage([
+        {
+          type: "toolCall",
+          id: "process_57|fc_native_57",
+          name: "bash",
+          arguments: { command: "echo hello" },
+        },
+      ]),
+      {
+        role: "toolResult",
+        toolCallId: "process_57|fc_native_57",
+        content: "hello",
+      },
+    ]);
+
+    const result = await sanitizeSessionHistory({
+      messages,
+      modelApi: "openai-responses",
+      provider: "volcengine-agent-plan",
+      modelId: "kimi-k3",
+      sessionManager: makeMockSessionManager(),
+      sessionId: TEST_SESSION_ID,
+      model: makeKimiResponsesModel(),
+    });
+
+    // Verify the native tool call ID is preserved through the full pipeline.
+    // No replayable rs_* reasoning metadata is present, so the |fc_* item
+    // suffix is downgraded and the native call part `process_57` must remain
+    // byte-for-byte (no generic sanitizer, no call_* rewrite).
+    const assistant = getAssistantMessage(result);
+    const toolCalls = assistant.content.filter((b: { type: string }) => b.type === "toolCall");
+    expect(toolCalls).toHaveLength(1);
+    const finalCallId = (toolCalls[0] as { id?: string }).id;
+    expect(finalCallId).toBe("process_57");
+    // Forbidden Root Cause 2 outcomes:
+    expect(finalCallId).not.toBe("process57");
+    expect(finalCallId).not.toMatch(/^call_/);
+
+    // Verify the tool result ID stays aligned with the assistant call ID
+    const toolResults = result.filter((m: any) => m.role === "toolResult");
+    expect(toolResults).toHaveLength(1);
+    const finalResultCallId = (toolResults[0] as { toolCallId?: string }).toolCallId;
+    expect(finalResultCallId).toBe("process_57");
+    expect(finalResultCallId).not.toBe("process57");
+  });
+
+  it("preserves native Responses tool call IDs with missing result (pairing repair regression)", async () => {
+    // This test verifies that preserveNativeResponsesToolCallIds=true does not
+    // shut off the existing pairing repair. A tool call without a matching
+    // toolResult must still get a synthetic "aborted" result whose id aligns
+    // with the final (native) assistant call id `process_58`.
+    const messages = castAgentMessages([
+      makeUserMessage("run bash"),
+      makeAssistantMessage([
+        {
+          type: "toolCall",
+          id: "process_58|fc_native_58",
+          name: "bash",
+          arguments: { command: "echo test" },
+        },
+      ]),
+      makeUserMessage("continue"),
+    ]);
+
+    const result = await sanitizeSessionHistory({
+      messages,
+      modelApi: "openai-responses",
+      provider: "volcengine-agent-plan",
+      modelId: "kimi-k3",
+      sessionManager: makeMockSessionManager(),
+      sessionId: TEST_SESSION_ID,
+      model: makeKimiResponsesModel(),
+    });
+
+    // Verify the native tool call ID is preserved through the full pipeline
+    const assistant = getAssistantMessage(result);
+    const toolCalls = assistant.content.filter((b: { type: string }) => b.type === "toolCall");
+    expect(toolCalls).toHaveLength(1);
+    const finalCallId = (toolCalls[0] as { id?: string }).id;
+    expect(finalCallId).toBe("process_58");
+    expect(finalCallId).not.toBe("process58");
+
+    // Verify a synthetic tool result was created and aligned with the native ID
+    const toolResults = result.filter(
+      (message): message is Extract<AgentMessage, { role: "toolResult" }> =>
+        message.role === "toolResult",
+    );
+    expect(toolResults).toHaveLength(1);
+    const finalResultCallId = (toolResults[0] as { toolCallId?: string }).toolCallId;
+    expect(finalResultCallId).toBe("process_58");
+    expect((toolResults[0] as { content?: unknown }).content).toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: "aborted" })]),
     );
   });
 });

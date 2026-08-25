@@ -501,6 +501,15 @@ export interface OpenAIResponsesCompat {
    * `previous_response_id`. Default: false.
    */
   supportsPreviousResponseId?: boolean;
+  /**
+   * Whether to preserve provider-native Responses tool call ids (`call_id` /
+   * `fc_*` item id pairings) during history replay instead of normalizing
+   * them to the OpenAI `call_*|fc_*` shape. Providers whose Responses chaining
+   * validates replayed `function_call_output.call_id` against the originally
+   * issued id (e.g. Kimi) require this when `previous_response_id`
+   * chaining is enabled. Default: false.
+   */
+  preserveNativeResponsesToolCallIds?: boolean;
 }
 
 /** Compatibility settings for Anthropic Messages-compatible APIs. */

@@ -101,6 +101,46 @@ describe("ModelsConfigSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts the per-model native Responses tool call ID capability", () => {
+    const result = ModelsConfigSchema.safeParse({
+      providers: {
+        compatible: {
+          baseUrl: "https://example.test/v1",
+          api: "openai-responses",
+          models: [
+            {
+              id: "native-id-model",
+              name: "Native ID model",
+              compat: { preserveNativeResponsesToolCallIds: true },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects non-boolean native Responses tool call ID capability values", () => {
+    const result = ModelsConfigSchema.safeParse({
+      providers: {
+        compatible: {
+          baseUrl: "https://example.test/v1",
+          api: "openai-responses",
+          models: [
+            {
+              id: "native-id-model",
+              name: "Native ID model",
+              compat: { preserveNativeResponsesToolCallIds: "true" },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it.each([0, -1, 1.5])("rejects invalid Responses input-item capability %s", (value) => {
     const result = ModelsConfigSchema.safeParse({
       providers: {

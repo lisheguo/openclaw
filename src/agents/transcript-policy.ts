@@ -25,6 +25,7 @@ export type TranscriptPolicy = {
   toolCallIdMode?: ToolCallIdMode;
   duplicateToolCallIdStyle?: "openai";
   preserveNativeAnthropicToolUseIds: boolean;
+  preserveNativeResponsesToolCallIds: boolean;
   repairToolUseResultPairing: boolean;
   preserveSignatures: boolean;
   sanitizeThoughtSignatures?: {
@@ -72,6 +73,7 @@ const DEFAULT_TRANSCRIPT_POLICY: TranscriptPolicy = {
   toolCallIdMode: undefined,
   duplicateToolCallIdStyle: undefined,
   preserveNativeAnthropicToolUseIds: false,
+  preserveNativeResponsesToolCallIds: false,
   repairToolUseResultPairing: true,
   preserveSignatures: false,
   sanitizeThoughtSignatures: undefined,
@@ -234,6 +236,9 @@ function mergeTranscriptPolicy(
     ...(typeof policy.preserveNativeAnthropicToolUseIds === "boolean"
       ? { preserveNativeAnthropicToolUseIds: policy.preserveNativeAnthropicToolUseIds }
       : {}),
+    ...(typeof policy.preserveNativeResponsesToolCallIds === "boolean"
+      ? { preserveNativeResponsesToolCallIds: policy.preserveNativeResponsesToolCallIds }
+      : {}),
     ...(typeof policy.repairToolUseResultPairing === "boolean"
       ? { repairToolUseResultPairing: policy.repairToolUseResultPairing }
       : {}),
@@ -291,6 +296,8 @@ function resolveTranscriptPolicyCacheKey(params: {
     modelId: params.modelId ?? "",
     dropsThinkingForReasoningCompat: modelDisablesReasoningEffort(params.model),
     preservesReasoningContentReplay: params.model?.reasoning === true,
+    preservesNativeResponsesToolCallIds:
+      params.model?.compat?.preserveNativeResponsesToolCallIds === true,
     workspaceDir: params.workspaceDir ?? "",
     pluginControlPlane: resolvePluginControlPlaneFingerprint({
       config: params.config,
@@ -346,15 +353,38 @@ export function resolveTranscriptPolicy(params: {
   // Once a provider adopts the replay-policy hook, replay policy should come
   // from the plugin, not from transport-family defaults in core.
   const buildReplayPolicy = runtimePlugin?.buildReplayPolicy;
-  const policy = buildReplayPolicy
-    ? mergeTranscriptPolicy(buildReplayPolicy(context) ?? undefined)
-    : mergeTranscriptPolicy(
-        buildUnownedProviderTransportReplayFallback({
-          modelApi: params.modelApi,
-          modelId: params.modelId,
-          model: params.model,
-        }),
-      );
+  const rawPolicy: ProviderReplayPolicy | undefined = buildReplayPolicy
+    ? (buildReplayPolicy(context) ?? undefined)
+    : buildUnownedProviderTransportReplayFallback({
+        modelApi: params.modelApi,
+        modelId: params.modelId,
+        model: params.model,
+      });
+
+  // Per-model capability overlay: `model.compat.preserveNativeResponsesToolCallIds`
+  // must survive provider-owned replay policies. Only fills the field when the
+  // plugin left it unset; an explicit plugin true/false always wins.
+  const modelPreservesNativeResponsesToolCallIds =
+    isOpenAiResponsesCompatibleApi(params.modelApi) &&
+    params.model?.compat?.preserveNativeResponsesToolCallIds === true;
+  const effectivePolicy: ProviderReplayPolicy | undefined =
+    modelPreservesNativeResponsesToolCallIds &&
+    rawPolicy?.preserveNativeResponsesToolCallIds === undefined
+      ? { ...rawPolicy, preserveNativeResponsesToolCallIds: true }
+      : rawPolicy;
+
+  const mergedPolicy = mergeTranscriptPolicy(effectivePolicy);
+
+  // Final invariant normalization:
+  // When preserveNativeResponsesToolCallIds=true on a Responses-compatible API,
+  // provider-native call_ids are opaque identity and must not enter the generic
+  // tool-call ID shape sanitizer.
+  const policy =
+    isOpenAiResponsesCompatibleApi(params.modelApi) &&
+    mergedPolicy.preserveNativeResponsesToolCallIds === true
+      ? { ...mergedPolicy, sanitizeToolCallIds: false, toolCallIdMode: undefined }
+      : mergedPolicy;
+
   if (cacheConfig && cacheKey) {
     let configCache = transcriptPolicyCache.get(cacheConfig);
     if (!configCache) {

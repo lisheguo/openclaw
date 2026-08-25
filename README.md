@@ -1,14 +1,36 @@
-# OpenClaw v2026.7.1-2-responses-cache.4 定制版
+# OpenClaw v2026.7.1-2-responses-cache.5 开发版
 
 > 本分支基于 OpenClaw 官方 v2026.7.1-2，是个人定制版本，并非 OpenClaw 官方发行版。
-> 定制版本/Git Tag：`v2026.7.1-2-responses-cache.4`
-> 固定分支：`fix/ark-stale-response-id`
+> 目标版本：`v2026.7.1-2-responses-cache.5`（Tag 尚未发布）
+> 开发分支：`ark-custom-2026.7.1-2-responses-cache.5`
 
-[直接下载 ZIP](https://github.com/lisheguo/openclaw/archive/refs/tags/v2026.7.1-2-responses-cache.4.zip) · [查看分支](https://github.com/lisheguo/openclaw/tree/fix/ark-stale-response-id) · [Ark .4 修复与升级测试说明](docs/providers/ark-responses-stale-response-id-v2026.7.1-2-responses-cache.4.md) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
+[下载开发分支 ZIP](https://github.com/lisheguo/openclaw/archive/refs/heads/ark-custom-2026.7.1-2-responses-cache.5.zip) · [查看开发分支](https://github.com/lisheguo/openclaw/tree/ark-custom-2026.7.1-2-responses-cache.5) · [Kimi 原生工具 ID 配置说明](docs/providers/ark-kimi-native-responses-tool-call-ids.md) · [Ark .4 修复与升级测试说明](docs/providers/ark-responses-stale-response-id-v2026.7.1-2-responses-cache.4.md) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
 
 ## 这个定制版增加了什么
 
-### 1. Ark stale response ID 自动恢复
+### 1. Ark Kimi K3 原生工具调用 ID
+
+Ark 托管的 Kimi Responses 模型可能返回 `read_0`、`exec_7` 等原生
+`call_id`。本版本新增模型级 capability
+`compat.preserveNativeResponsesToolCallIds`，开启后会在 Session Cache
+增量续接和历史回放中保持该 ID 不变，避免被改写后触发
+`tool_call_id is not found`。
+
+- 默认关闭，只影响明确配置的 Responses 模型。
+- 不按 provider 或模型名称硬编码。
+- 不关闭工具配对修复、reasoning pair 降级或 `previous_response_id`。
+- 豆包等未开启模型继续使用原有 `call_*` ID 处理。
+
+完整配置、验证和回滚规则见 [Kimi 原生工具 ID 配置说明](docs/providers/ark-kimi-native-responses-tool-call-ids.md)。
+
+### 2. Overflow compaction 长会话修复
+
+- 一段连续 overflow 恢复仍最多压缩三次，避免无限循环。
+- 当一次非 overflow 尝试证明会话已经恢复后，重新提供下一段 overflow 的压缩预算。
+- attempt 内压缩已经持久化当前用户消息时，从 transcript 继续，不再重放原始 prompt。
+- 避免重复用户消息、重复工具调用及工具结果错配。
+
+### 3. Ark stale response ID 自动恢复
 
 Ark（火山方舟）在 `previous_response_id` 过期或不存在时会返回
 `InvalidParameter.PreviousResponseNotFound`。本版本会把该错误准确识别为
@@ -22,7 +44,7 @@ Ark（火山方舟）在 `previous_response_id` 过期或不存在时会返回
 
 无需增加 Ark 配置；继续使用现有 `openai-responses` Provider 配置即可。
 
-### 2. DashScope Responses Session Cache
+### 4. DashScope Responses Session Cache
 
 指定模型可以显式开启 DashScope 会话缓存，并使用 OpenAI Responses 兼容的 `previous_response_id` 串联同一会话：
 
@@ -32,22 +54,22 @@ Ark（火山方舟）在 `previous_response_id` 过期或不存在时会返回
 - 工具执行结果继续以 Responses `function_call_output` 格式发送。
 - 默认关闭，只影响明确配置的模型；其他模型不会被自动开启。
 
-### 2. 严格的会话隔离和安全降级
+### 5. 严格的会话隔离和安全降级
 
 只有 provider、API 类型、模型 ID、base URL、OpenClaw session ID、auth profile ID、响应 ID 和来源信息全部一致时，才允许复用上一轮响应。任何信息缺失或不一致都会安全降级为完整历史请求，避免跨模型、跨账号、跨端点或跨会话错误复用缓存。
 
-### 3. 压缩边界和会话分支处理
+### 6. 压缩边界和会话分支处理
 
 - 上下文压缩后的第一轮会重新建立响应链，后续轮次可从新响应继续串联。
 - 只读取当前活动会话分支，不会复用废弃分支中的响应。
 - ARK 输入项目数量保护改为 model/provider capability；只有显式设置 `responsesMaxInputItems` 的 Responses 模型才启用。
 - 旧的 `agents.defaults.compaction.maxInputItems` 暂时保留为兼容 fallback，原有 token 压缩保持不变。
 
-### 4. OpenClaw 可执行的配置维护说明
+### 7. OpenClaw 可执行的配置维护说明
 
 新增 [DashScope Responses Session Cache 配置文档](docs/providers/dashscope-responses-session-cache.md)，既供人阅读，也作为 OpenClaw 后期修改 `openclaw.json` 时的执行约束。它说明了如何安全合并目标模型配置、保留已有字段和凭据、验证、重启、回滚，以及如何避免泄露 API Key。
 
-### 5. 百炼工具 Schema 兼容修复
+### 8. 百炼工具 Schema 兼容修复
 
 百炼官方确认，Responses Session Cache 请求中的工具定义不支持 `patternProperties`，只支持 `additionalProperties`。本版本在源码层完成兼容转换：
 

@@ -2763,7 +2763,13 @@ async function runEmbeddedAgentInternal(
               log.warn(
                 `context overflow persisted after in-attempt compaction (attempt ${overflowCompactionAttempts}/${MAX_OVERFLOW_COMPACTION_ATTEMPTS}); retrying prompt without additional compaction for ${provider}/${modelId}`,
               );
-              if (preflightRecovery?.source === "mid-turn") {
+              if (
+                preflightRecovery?.source === "mid-turn" ||
+                (params.currentMessageId !== undefined &&
+                  params.currentMessageId === lastPersistedCurrentMessageId)
+              ) {
+                // In-attempt compaction can persist the inbound turn before an
+                // overflow is surfaced. Resume the transcript or the retry duplicates it.
                 continueFromCurrentTranscript();
               }
               continue;
@@ -2964,8 +2970,7 @@ async function runEmbeddedAgentInternal(
                   // The first attempt reached the embedded agent far enough to persist this user turn.
                   // Retrying the original prompt would replay it, so resume from the
                   // compacted transcript and suppress the next user append.
-                  nextAttemptPromptOverride = MID_TURN_PRECHECK_CONTINUATION_PROMPT;
-                  suppressNextUserMessagePersistence = true;
+                  continueFromCurrentTranscript();
                 }
                 continue;
               }
@@ -3070,6 +3075,12 @@ async function runEmbeddedAgentInternal(
                 error: { kind, message: errorText },
               },
             };
+          }
+
+          if (overflowCompactionAttempts > 0) {
+            // The cap bounds one uninterrupted overflow-recovery chain. Once an
+            // attempt reaches normal handling, later retries get a fresh budget.
+            overflowCompactionAttempts = 0;
           }
 
           if (promptErrorSource === "hook:before_agent_run" && !aborted) {

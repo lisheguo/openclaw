@@ -1173,13 +1173,18 @@ export function sanitizeReplayToolCallIdsForStream(params: {
 }
 
 /** Downgrades OpenAI Responses replay turns into the stream format expected by runtime callers. */
-export function sanitizeOpenAIResponsesReplayForStream(messages: AgentMessage[]): AgentMessage[] {
+export function sanitizeOpenAIResponsesReplayForStream(
+  messages: AgentMessage[],
+  options?: { preserveNativeResponsesToolCallIds?: boolean },
+): AgentMessage[] {
   const repaired = sanitizeToolUseResultPairing(messages, {
     erroredAssistantResultPolicy: "drop",
     missingToolResultText: "aborted",
   });
   return downgradeOpenAIFunctionCallReasoningPairs(
-    normalizeOpenAIResponsesToolCallIds(downgradeOpenAIReasoningBlocks(repaired)),
+    normalizeOpenAIResponsesToolCallIds(downgradeOpenAIReasoningBlocks(repaired), {
+      preserveNativeResponsesToolCallIds: options?.preserveNativeResponsesToolCallIds,
+    }),
   );
 }
 

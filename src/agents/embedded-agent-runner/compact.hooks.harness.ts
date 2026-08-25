@@ -222,6 +222,7 @@ function createCompactHooksRuntimePlan(params: BuildAgentRuntimePlanParams): Age
     sanitizeMode: "full" as const,
     sanitizeToolCallIds: false,
     preserveNativeAnthropicToolUseIds: false,
+    preserveNativeResponsesToolCallIds: false,
     repairToolUseResultPairing: false,
     preserveSignatures: false,
     sanitizeThinkingSignatures: false,

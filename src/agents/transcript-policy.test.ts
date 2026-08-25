@@ -6,6 +6,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveProviderRuntimePlugin } from "../plugins/provider-hook-runtime.js";
 import type { ProviderRuntimeModel } from "../plugins/provider-runtime-model.types.js";
+import type { ProviderPlugin, ProviderReplayPolicy } from "../plugins/types.js";
 
 vi.mock("../plugins/provider-hook-runtime.js", async () => {
   const replayHelpers = await vi.importActual<
@@ -768,6 +769,127 @@ describe("resolveTranscriptPolicy", () => {
     expect(policy.sanitizeThoughtSignatures).toEqual({
       allowBase64Only: true,
       includeCamelCase: true,
+    });
+  });
+
+  describe("preserveNativeResponsesToolCallIds per-model capability overlay", () => {
+    function makeResponsesModel(preserveFlag?: boolean): ProviderRuntimeModel {
+      return makeOpenAiCompatibleReasoningModel({
+        api: "openai-responses",
+        compat:
+          preserveFlag === undefined
+            ? undefined
+            : {
+                preserveNativeResponsesToolCallIds: preserveFlag,
+              },
+      });
+    }
+
+    function resolveWithPlugin(params: {
+      pluginPolicy?: Record<string, unknown> | undefined;
+      hasPlugin: boolean;
+      preserveFlag?: boolean;
+    }) {
+      return resolveTranscriptPolicy({
+        provider: "test-overlay-provider",
+        modelId: "demo-responses-model",
+        modelApi: "openai-responses",
+        model: makeResponsesModel(params.preserveFlag),
+        runtimeHandle: params.hasPlugin
+          ? {
+              provider: "test-overlay-provider",
+              plugin: {
+                id: "test-overlay-provider",
+                label: "Test Overlay Provider",
+                buildReplayPolicy: () =>
+                  params.pluginPolicy as unknown as ProviderReplayPolicy | undefined,
+              } as unknown as ProviderPlugin,
+            }
+          : undefined,
+      });
+    }
+
+    it("applies model compat flag when plugin leaves the field unset", () => {
+      const policy = resolveWithPlugin({
+        hasPlugin: true,
+        pluginPolicy: { sanitizeToolCallIds: true, toolCallIdMode: "strict" },
+        preserveFlag: true,
+      });
+      expect(policy.preserveNativeResponsesToolCallIds).toBe(true);
+      // Final invariant: preserve=true forces sanitizeToolCallIds=false and toolCallIdMode=undefined
+      expect(policy.sanitizeToolCallIds).toBe(false);
+      expect(policy.toolCallIdMode).toBeUndefined();
+    });
+
+    it("lets an explicit plugin false win over model compat true", () => {
+      const policy = resolveWithPlugin({
+        hasPlugin: true,
+        pluginPolicy: { preserveNativeResponsesToolCallIds: false },
+        preserveFlag: true,
+      });
+      expect(policy.preserveNativeResponsesToolCallIds).toBe(false);
+    });
+
+    it("keeps plugin true when model compat is unset or false", () => {
+      for (const preserveFlag of [undefined, false] as const) {
+        const policy = resolveWithPlugin({
+          hasPlugin: true,
+          pluginPolicy: {
+            preserveNativeResponsesToolCallIds: true,
+            sanitizeToolCallIds: true,
+            toolCallIdMode: "strict",
+          },
+          preserveFlag,
+        });
+        expect(policy.preserveNativeResponsesToolCallIds).toBe(true);
+        // Final invariant: preserve=true forces sanitizeToolCallIds=false and toolCallIdMode=undefined
+        expect(policy.sanitizeToolCallIds).toBe(false);
+        expect(policy.toolCallIdMode).toBeUndefined();
+      }
+    });
+
+    it("applies model compat flag when the plugin replay hook returns undefined", () => {
+      const policy = resolveWithPlugin({
+        hasPlugin: true,
+        pluginPolicy: undefined,
+        preserveFlag: true,
+      });
+      expect(policy.preserveNativeResponsesToolCallIds).toBe(true);
+      // Final invariant: preserve=true forces sanitizeToolCallIds=false and toolCallIdMode=undefined
+      expect(policy.sanitizeToolCallIds).toBe(false);
+      expect(policy.toolCallIdMode).toBeUndefined();
+    });
+
+    it("defaults to false when neither plugin nor model compat set the flag", () => {
+      const policy = resolveWithPlugin({
+        hasPlugin: true,
+        pluginPolicy: { sanitizeToolCallIds: true },
+        preserveFlag: undefined,
+      });
+      expect(policy.preserveNativeResponsesToolCallIds).toBe(false);
+    });
+
+    it("applies model compat flag through the unowned fallback path", () => {
+      const policy = resolveWithPlugin({
+        hasPlugin: false,
+        preserveFlag: true,
+      });
+      expect(policy.preserveNativeResponsesToolCallIds).toBe(true);
+      // Final invariant: preserve=true forces sanitizeToolCallIds=false and toolCallIdMode=undefined
+      expect(policy.sanitizeToolCallIds).toBe(false);
+      expect(policy.toolCallIdMode).toBeUndefined();
+    });
+
+    it("ignores the model compat flag for non-Responses APIs", () => {
+      const policy = resolveTranscriptPolicy({
+        provider: "test-overlay-provider",
+        modelId: "demo-model",
+        modelApi: "openai-completions",
+        model: makeOpenAiCompatibleReasoningModel({
+          compat: { preserveNativeResponsesToolCallIds: true },
+        }),
+      });
+      expect(policy.preserveNativeResponsesToolCallIds).toBe(false);
     });
   });
 });

@@ -111,6 +111,7 @@ function makeForwardedRuntimePlan(overrides: RuntimePlanOverrides = {}): AgentRu
     sanitizeMode: "full",
     sanitizeToolCallIds: true,
     preserveNativeAnthropicToolUseIds: false,
+    preserveNativeResponsesToolCallIds: false,
     repairToolUseResultPairing: true,
     preserveSignatures: false,
     sanitizeThinkingSignatures: true,

@@ -805,6 +805,8 @@ export type ProviderReplayPolicy = {
   toolCallIdMode?: ProviderReplayToolCallIdMode;
   duplicateToolCallIdStyle?: "openai";
   preserveNativeAnthropicToolUseIds?: boolean;
+  /** Preserve provider-native Responses `call_id|fc_id` pairings during replay. */
+  preserveNativeResponsesToolCallIds?: boolean;
   preserveSignatures?: boolean;
   sanitizeThoughtSignatures?: {
     allowBase64Only?: boolean;

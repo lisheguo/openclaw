@@ -3142,7 +3142,11 @@ export async function runEmbeddedAttempt(
       if (isOpenAIResponsesApi) {
         activeSession.agent.streamFn = wrapStreamFnWithMessageTransform(
           activeSession.agent.streamFn,
-          (messages) => sanitizeOpenAIResponsesReplayForStream(messages),
+          (messages) =>
+            sanitizeOpenAIResponsesReplayForStream(messages, {
+              preserveNativeResponsesToolCallIds:
+                transcriptPolicy.preserveNativeResponsesToolCallIds,
+            }),
         );
       }
 

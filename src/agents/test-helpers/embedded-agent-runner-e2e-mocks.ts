@@ -114,6 +114,7 @@ export function installEmbeddedRunnerFastRunE2eMocks(
             sanitizeMode: "full",
             sanitizeToolCallIds: true,
             preserveNativeAnthropicToolUseIds: false,
+            preserveNativeResponsesToolCallIds: false,
             repairToolUseResultPairing: true,
             preserveSignatures: false,
             sanitizeThinkingSignatures: true,
