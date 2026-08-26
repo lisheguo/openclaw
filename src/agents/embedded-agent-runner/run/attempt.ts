@@ -4874,6 +4874,7 @@ export async function runEmbeddedAttempt(
               reserveTokens,
               toolResultMaxChars: promptToolResultMaxChars,
               maxInputItems: responsesInputItemsLimit.maxInputItems,
+              inputItemsSafetyMargin: responsesInputItemsLimit.inputItemsSafetyMargin,
               llmBoundaryTokenPressure: {
                 estimatedPromptTokens: llmBoundaryTokenPressure,
                 source: "llm_boundary_normalized_prompt",

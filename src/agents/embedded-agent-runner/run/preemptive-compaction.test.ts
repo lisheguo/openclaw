@@ -132,6 +132,21 @@ describe("preemptive-compaction", () => {
       expect(result.inputItemsSafetyMargin).toBe(150);
     });
 
+    it("does not double count a prompt already present during continuation", () => {
+      const result = shouldPreemptivelyCompactBeforePrompt({
+        messages: Array.from({ length: 849 }, (_, index) => makeInputItemMessage(index)),
+        prompt: "",
+        contextTokenBudget: 128_000,
+        reserveTokens: 32_000,
+        maxInputItems: 1000,
+        inputItemsSafetyMargin: 150,
+      });
+
+      expect(result.route).toBe("fits");
+      expect(result.shouldCompactByItems).toBe(false);
+      expect(result.estimatedInputItems).toBe(849);
+    });
+
     it("persists and logs input item fields", () => {
       const result = shouldPreemptivelyCompactBeforePrompt({
         messages: Array.from({ length: 849 }, (_, index) => makeInputItemMessage(index)),

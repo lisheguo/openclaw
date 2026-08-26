@@ -63,6 +63,8 @@ Ark（火山方舟）在 `previous_response_id` 过期或不存在时会返回
 - 上下文压缩后的第一轮会重新建立响应链，后续轮次可从新响应继续串联。
 - 只读取当前活动会话分支，不会复用废弃分支中的响应。
 - ARK 输入项目数量保护改为 model/provider capability；只有显式设置 `responsesMaxInputItems` 的 Responses 模型才启用。
+- `responsesInputItemsSafetyMargin` 可在 model/provider 层配置，默认安全边距为 150；当前用户输入也计入项目数估算。
+- `compactionSummary` 会作为真实会话锚点保留，避免连续压缩后丢失摘要上下文或错误重放原始 prompt。
 - 旧的 `agents.defaults.compaction.maxInputItems` 暂时保留为兼容 fallback，原有 token 压缩保持不变。
 
 ### 7. OpenClaw 可执行的配置维护说明
@@ -119,11 +121,12 @@ ARK 1000 项输入保护是独立 capability，只配置在确实存在 hard lim
   api: "openai-responses",
   compat: {
     responsesMaxInputItems: 1000,
+    responsesInputItemsSafetyMargin: 150,
   },
 }
 ```
 
-也可在 provider 上设置 `responsesMaxInputItems` 作为模型默认值。解析优先级为 model、provider、legacy `agents.defaults.compaction.maxInputItems`、disabled；旧 Agent 级字段仍可工作，但建议迁移。
+也可在 provider 上设置 `responsesMaxInputItems` 和 `responsesInputItemsSafetyMargin` 作为模型默认值。上限解析优先级为 model、provider、legacy `agents.defaults.compaction.maxInputItems`、disabled；安全边距优先级为 model、provider、默认 150。未配置上限时，安全边距不生效。旧 Agent 级上限字段仍可工作，但建议迁移。
 
 ## 云端编译和测试
 

@@ -87,11 +87,15 @@ describe("ModelsConfigSchema", () => {
           baseUrl: "https://example.test/v1",
           api: "openai-responses",
           responsesMaxInputItems: 900,
+          responsesInputItemsSafetyMargin: 175,
           models: [
             {
               id: "responses-model",
               name: "Responses model",
-              compat: { responsesMaxInputItems: 1000 },
+              compat: {
+                responsesMaxInputItems: 1000,
+                responsesInputItemsSafetyMargin: 125,
+              },
             },
           ],
         },
@@ -152,6 +156,26 @@ describe("ModelsConfigSchema", () => {
               id: "responses-model",
               name: "Responses model",
               compat: { responsesMaxInputItems: value },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it.each([-1, 1.5])("rejects invalid Responses input-item safety margin %s", (value) => {
+    const result = ModelsConfigSchema.safeParse({
+      providers: {
+        compatible: {
+          baseUrl: "https://example.test/v1",
+          api: "openai-responses",
+          models: [
+            {
+              id: "responses-model",
+              name: "Responses model",
+              compat: { responsesInputItemsSafetyMargin: value },
             },
           ],
         },

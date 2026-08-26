@@ -1,8 +1,18 @@
 import type { Model } from "../../../llm/types.js";
 
 export type ResponsesInputItemsLimit =
-  | { maxInputItems: number; source: "model" | "provider" | "legacy-agent" }
-  | { maxInputItems?: undefined; source: "disabled" };
+  | {
+      maxInputItems: number;
+      inputItemsSafetyMargin: number;
+      source: "model" | "provider" | "legacy-agent";
+    }
+  | {
+      maxInputItems?: undefined;
+      inputItemsSafetyMargin?: undefined;
+      source: "disabled";
+    };
+
+const DEFAULT_INPUT_ITEMS_SAFETY_MARGIN = 150;
 
 const RESPONSES_APIS = new Set([
   "openai-responses",
@@ -17,34 +27,50 @@ function normalizePositiveInteger(value: unknown): number | undefined {
     : undefined;
 }
 
+function normalizeNonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : undefined;
+}
+
 /**
  * Resolves the Responses input-item hard limit at the selected model boundary.
  * Non-Responses models stay disabled even when a misplaced capability exists.
  */
 export function resolveResponsesMaxInputItems(params: {
   model: Model;
-  provider?: { responsesMaxInputItems?: unknown };
+  provider?: {
+    responsesMaxInputItems?: unknown;
+    responsesInputItemsSafetyMargin?: unknown;
+  };
   legacyAgentMaxInputItems?: unknown;
 }): ResponsesInputItemsLimit {
   if (!RESPONSES_APIS.has(params.model.api)) {
     return { source: "disabled" };
   }
 
-  const modelLimit = normalizePositiveInteger(
-    (params.model.compat as { responsesMaxInputItems?: unknown } | undefined)
-      ?.responsesMaxInputItems,
-  );
+  const modelCompat = params.model.compat as
+    | {
+        responsesMaxInputItems?: unknown;
+        responsesInputItemsSafetyMargin?: unknown;
+      }
+    | undefined;
+  const inputItemsSafetyMargin =
+    normalizeNonNegativeInteger(modelCompat?.responsesInputItemsSafetyMargin) ??
+    normalizeNonNegativeInteger(params.provider?.responsesInputItemsSafetyMargin) ??
+    DEFAULT_INPUT_ITEMS_SAFETY_MARGIN;
+  const modelLimit = normalizePositiveInteger(modelCompat?.responsesMaxInputItems);
   if (modelLimit !== undefined) {
-    return { maxInputItems: modelLimit, source: "model" };
+    return { maxInputItems: modelLimit, inputItemsSafetyMargin, source: "model" };
   }
 
   const providerLimit = normalizePositiveInteger(params.provider?.responsesMaxInputItems);
   if (providerLimit !== undefined) {
-    return { maxInputItems: providerLimit, source: "provider" };
+    return { maxInputItems: providerLimit, inputItemsSafetyMargin, source: "provider" };
   }
 
   const legacyLimit = normalizePositiveInteger(params.legacyAgentMaxInputItems);
   return legacyLimit === undefined
     ? { source: "disabled" }
-    : { maxInputItems: legacyLimit, source: "legacy-agent" };
+    : { maxInputItems: legacyLimit, inputItemsSafetyMargin, source: "legacy-agent" };
 }

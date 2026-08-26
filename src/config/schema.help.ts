@@ -1009,6 +1009,8 @@ export const FIELD_HELP: Record<string, string> = {
     "Default maximum output token budget applied to models under this provider when a model entry does not set maxTokens.",
   "models.providers.*.responsesMaxInputItems":
     "Optional provider-level maximum number of input items for Responses API requests. Model-level compat.responsesMaxInputItems overrides it; undefined disables provider-level item-count compaction.",
+  "models.providers.*.responsesInputItemsSafetyMargin":
+    "Optional provider-level safety margin below the Responses input-item limit. Model-level compat.responsesInputItemsSafetyMargin overrides it; defaults to 150 when a limit is configured.",
   "models.providers.*.timeoutSeconds":
     "Optional per-provider model request timeout in seconds. Provider-level request settings affect explicit provider-owned model rows; they do not create implicit models. For custom providers, set it alongside the provider baseUrl and models. Applies to provider HTTP fetches, including connect, headers, body, and total request abort handling, and also raises the LLM idle/stream watchdog ceiling for this provider above the implicit ~120s default. Use this for slow local or self-hosted model servers, or for cloud providers that buffer reasoning tokens silently on the wire (Gemini preview, large-tool-payload Claude/Opus), instead of changing global agent timeouts.",
   "models.providers.*.region":
@@ -1110,6 +1112,8 @@ export const FIELD_HELP: Record<string, string> = {
     "Preserves provider-issued Responses API tool call IDs during history replay. Enable only for a verified Responses-compatible model whose session chaining validates function_call_output.call_id against the original provider-issued ID; false or undefined keeps normal ID sanitization.",
   "models.providers.*.models[].compat.responsesMaxInputItems":
     "Maximum number of input items for Responses API requests. Undefined disables item-count based compaction for this model; this model-level value overrides provider and legacy agent settings.",
+  "models.providers.*.models[].compat.responsesInputItemsSafetyMargin":
+    "Safety margin below the resolved Responses input-item limit. This model-level value overrides the provider margin; defaults to 150 and has no effect when no input-item limit is configured.",
   "models.providers.*.models[].agentRuntime":
     "Optional low-level agent runtime policy for this specific model. Model runtime policy overrides the provider runtime policy.",
   "models.providers.*.models[].agentRuntime.id":

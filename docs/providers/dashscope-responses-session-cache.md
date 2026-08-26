@@ -116,13 +116,14 @@ This capability is separate from DashScope session chaining. Configure it only o
   api: "openai-responses",
   compat: {
     responsesMaxInputItems: 1000,
+    responsesInputItemsSafetyMargin: 150,
   },
 }
 ```
 
-A provider may set `responsesMaxInputItems` as the default for its models. Resolution order is model capability, provider capability, legacy `agents.defaults.compaction.maxInputItems`, then disabled. The Agent-level field remains a compatibility fallback but is no longer the recommended entry point.
+A provider may set `responsesMaxInputItems` and `responsesInputItemsSafetyMargin` as defaults for its models. Limit resolution order is model capability, provider capability, legacy `agents.defaults.compaction.maxInputItems`, then disabled. Safety-margin resolution order is model capability, provider capability, then the default `150`. A margin has no effect without a resolved limit. The Agent-level limit remains a compatibility fallback but is no longer the recommended entry point.
 
-When the resolved limit is `1000`, the default safety margin is `150`, so item-based preemptive compaction starts at an estimated 850 input items. Without a resolved limit, the safety margin and item-count compaction are disabled while token-based compaction continues unchanged. Item-triggered compaction also breaks any existing `previous_response_id` chain; the next request performs a full stored rebuild.
+When the resolved limit is `1000` and the configured or default safety margin is `150`, item-based preemptive compaction starts at an estimated 850 input items. For example, setting `responsesInputItemsSafetyMargin: 200` starts it at 800. Without a resolved limit, the safety margin and item-count compaction are disabled while token-based compaction continues unchanged. Item-triggered compaction also breaks any existing `previous_response_id` chain; the next request performs a full stored rebuild.
 
 ## Verification checklist
 
@@ -146,6 +147,6 @@ To disable session chaining for a model:
 1. Remove `compat.supportsPreviousResponseId` or set it to `false`.
 2. Remove `x-dashscope-session-cache` only when it is not used by another provider feature.
 3. Leave existing response ids in transcript history untouched; they are ignored while the capability is disabled.
-4. Remove the target model/provider `responsesMaxInputItems` only if item-limit protection is no longer wanted. Remove the legacy Agent-level fallback only after all affected models have migrated.
+4. Remove the target model/provider `responsesMaxInputItems` and `responsesInputItemsSafetyMargin` only if item-limit protection is no longer wanted. Remove the legacy Agent-level fallback only after all affected models have migrated.
 
 Rollback returns the model to full-history requests without rewriting conversation history.

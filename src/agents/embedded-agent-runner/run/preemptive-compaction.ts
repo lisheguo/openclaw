@@ -261,14 +261,11 @@ function estimateMessageTokenPressure(message: AgentMessage): number {
  */
 /**
  * Estimates the number of input items a provider will count for the given
- * messages. Providers such as Volcengine Ark (Responses API) cap input items
- * (e.g. 1000) separately from token budget; once exceeded they reject the
- * request with "Maximum of 1000 items allowed in input". This counts one base
- * item per message plus one item per extra content block that maps to a
- * distinct provider item (tool call, tool result, thinking, image, file). The
- * ratio (roughly 1.3 items per message in tool-heavy sessions) tracks observed
- * provider counts closely enough to trigger pre-prompt compaction before the
- * hard cap is reached.
+ * messages. Some Responses providers cap input items separately from the token
+ * budget. This counts one base item per message plus one item per extra content
+ * block that maps to a distinct provider item (tool call, tool result, thinking,
+ * image, file), allowing a configured model/provider limit to trigger
+ * pre-prompt compaction before the provider rejects the request.
  */
 export function estimateInputItems(messages: AgentMessage[]): number {
   let items = 0;
@@ -426,7 +423,10 @@ export function shouldPreemptivelyCompactBeforePrompt(params: {
     effectiveMaxInputItems === undefined
       ? undefined
       : Math.max(0, Math.floor(params.inputItemsSafetyMargin ?? 150));
-  const estimatedInputItems = estimateInputItems(messagesForPressure);
+  // A submitted prompt becomes one user input item. Continuation/tool-loop checks pass an
+  // empty prompt because that user item is already present in messages, avoiding double count.
+  const currentPromptInputItems = params.prompt.trim().length > 0 ? 1 : 0;
+  const estimatedInputItems = estimateInputItems(messagesForPressure) + currentPromptInputItems;
   const inputItemsOverflow =
     effectiveMaxInputItems !== undefined &&
     estimatedInputItems >= effectiveMaxInputItems - (effectiveItemsSafetyMargin ?? 0);

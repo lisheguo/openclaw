@@ -1,9 +1,9 @@
 ---
-summary: "Upgrade to OpenClaw responses-cache.5 and validate Ark Kimi native tool call IDs and overflow recovery"
+summary: "Upgrade to OpenClaw responses-cache.5 and validate Ark Kimi tool IDs, input-item protection, and compaction recovery"
 read_when:
   - You are upgrading from responses-cache.4 to responses-cache.5
   - You need an Ark Kimi and control-model acceptance checklist
-  - You need to validate native Responses tool call IDs or overflow compaction recovery
+  - You need to validate native Responses tool call IDs, input-item limits, or compaction recovery
 title: "Ark Kimi Responses cache .5 upgrade and acceptance"
 ---
 
@@ -11,12 +11,16 @@ title: "Ark Kimi Responses cache .5 upgrade and acceptance"
 
 This guide upgrades the custom OpenClaw Responses cache build from
 `v2026.7.1-2-responses-cache.4` to the `.5` development branch and validates
-the two `.5` changes:
+the `.5` changes:
 
 - provider-native Responses tool call IDs can be preserved for an explicitly
   configured Ark Kimi model;
 - overflow compaction resumes from the persisted transcript and restores its
-  retry budget after a non-overflow attempt.
+  retry budget after a non-overflow attempt;
+- Responses input-item limits and their safety margin can be configured at the
+  model or provider boundary without affecting other Responses models;
+- item estimation includes the current inbound prompt, and compaction summaries
+  remain valid conversation anchors across repeated compactions.
 
 The custom build remains based on official OpenClaw `v2026.7.1-2`. It is not an
 official OpenClaw release. Until the `.5` Git tag is published, use the named
@@ -71,7 +75,7 @@ The inherited `v2026.7.1-2` dependency metadata requires
 installation-generated lockfile unless the dependency change is intentional
 and reviewed.
 
-## Configure only the Ark Kimi model
+## Configure the affected Ark model
 
 Merge the capability into the verified Kimi model. Preserve every existing
 provider, model, header, credential, and compatibility field:
@@ -88,6 +92,8 @@ provider, model, header, credential, and compatibility field:
             compat: {
               supportsPreviousResponseId: true,
               preserveNativeResponsesToolCallIds: true,
+              responsesMaxInputItems: 1000,
+              responsesInputItemsSafetyMargin: 150,
             },
           },
         ],
@@ -100,6 +106,18 @@ provider, model, header, credential, and compatibility field:
 Do not enable `preserveNativeResponsesToolCallIds` provider-wide. Leave the
 control model unset or explicitly `false`, so it continues using normal
 OpenClaw tool call ID sanitization.
+
+Configure `responsesMaxInputItems` only for a Responses model with a documented
+hard input-item limit. `responsesInputItemsSafetyMargin` defaults to `150` when
+a limit is active and may be set to `0` or another non-negative integer. For a
+limit of `1000`, the default margin starts preemptive compaction at an estimated
+`850` items; a margin of `200` starts it at `800`.
+
+Both fields may be set on the provider as model defaults. Model values override
+provider values. The legacy `agents.defaults.compaction.maxInputItems` remains a
+last-resort compatibility fallback for the limit; it is not the recommended
+configuration surface. A margin without a resolved limit has no effect, and
+non-Responses models remain disabled.
 
 Validate before restarting:
 
@@ -127,14 +145,18 @@ pnpm test \
   src/agents/embedded-agent-helpers/openai.responses-preserve.test.ts \
   src/agents/transcript-policy.test.ts \
   src/agents/embedded-agent-runner.sanitize-session-history.test.ts \
+  src/agents/compaction-real-conversation.test.ts \
+  src/agents/embedded-agent-runner/compact.hooks.test.ts \
   src/agents/embedded-agent-runner/run/attempt.tool-call-normalization.test.ts \
+  src/agents/embedded-agent-runner/run/preemptive-compaction.test.ts \
+  src/agents/embedded-agent-runner/run/responses-input-items-limit.test.ts \
   src/agents/embedded-agent-runner/run.overflow-compaction.loop.test.ts \
   src/agents/embedded-agent-runner/run.overflow-compaction.test.ts
 ```
 
-The `.5` development branch passed 311 focused assertions before publication.
-Treat the current command result as authoritative if later upstream changes
-alter the test count.
+Record the checked-out commit and command result. Treat the current run as
+authoritative because the assertion count can change as the `.5` branch gains
+additional regression coverage.
 
 ## Validate Ark Kimi end to end
 
@@ -187,6 +209,30 @@ Run this validation only in a disposable session or controlled test fixture.
 The focused automated proof lives in
 `src/agents/embedded-agent-runner/run.overflow-compaction.loop.test.ts`.
 
+## Validate input-item protection and summary continuity
+
+Run this validation on an Ark Responses model whose documented input-item limit
+matches `responsesMaxInputItems`. Do not copy Ark's limit to unrelated Responses
+models.
+
+1. Start a disposable session below the configured threshold and confirm normal
+   model requests continue without item-triggered compaction.
+2. Grow the tool-heavy conversation until the estimated count reaches
+   `responsesMaxInputItems - responsesInputItemsSafetyMargin`.
+3. Confirm the decision reports the configured `inputItemsLimit`, effective
+   `inputItemsSafetyMargin`, and `shouldCompactByItems=true` with route
+   `compact_items_overflow`.
+4. Confirm `estimatedInputItems` includes the current inbound prompt, so a prompt
+   that crosses the threshold compacts before the provider request.
+5. Confirm the item-triggered compaction breaks the old `previous_response_id`
+   chain, performs a full stored rebuild, and saves a new response ID.
+6. Continue the same session through a second compaction. Confirm the non-empty
+   `compactionSummary` remains a conversation anchor, recent tool results remain
+   paired, and the original prompt is not duplicated.
+
+If no model/provider limit is configured, confirm item-count compaction remains
+disabled while normal token-based compaction continues unchanged.
+
 ## Check retained .4 behavior
 
 The `.5` build must retain the `.4` recovery and DashScope behavior:
@@ -213,6 +259,10 @@ Record only sanitized evidence:
 - the four Ark Kimi/control rounds and their pass/fail result;
 - whether incremental mode and native call IDs were observed;
 - overflow compaction assertion results;
+- the resolved input-item limit source, limit, safety margin, estimated count,
+  and item-trigger route;
+- whether the current prompt was counted and repeated compaction retained the
+  latest summary anchor without duplicating the prompt;
 - focused test, build, and production type-check results;
 - any remaining warnings or untested live path.
 
@@ -225,6 +275,10 @@ If Kimi alone fails, remove
 `compat.preserveNativeResponsesToolCallIds`, validate the config, and restart
 the Gateway. Leave `supportsPreviousResponseId` unchanged unless the provider's
 session chaining must also be disabled.
+
+To disable input-item protection, remove `responsesMaxInputItems` and
+`responsesInputItemsSafetyMargin` from the affected model or provider. Remove
+the legacy Agent-level fallback only after every affected model has migrated.
 
 If the `.5` build must be removed, restore the application backup or return to
 the immutable `.4` tag:

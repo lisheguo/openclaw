@@ -497,6 +497,11 @@ export interface OpenAIResponsesCompat {
    */
   responsesMaxInputItems?: number;
   /**
+   * Number of items reserved below responsesMaxInputItems before preemptive compaction.
+   * Defaults to 150 when an input-item limit is configured.
+   */
+  responsesInputItemsSafetyMargin?: number;
+  /**
    * Whether the provider supports stateful Responses chaining with
    * `previous_response_id`. Default: false.
    */

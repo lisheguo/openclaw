@@ -590,6 +590,8 @@ export const FIELD_LABELS: Record<string, string> = {
   "models.providers.*.contextTokens": "Model Provider Context Tokens",
   "models.providers.*.maxTokens": "Model Provider Max Tokens",
   "models.providers.*.responsesMaxInputItems": "Model Provider Responses Max Input Items",
+  "models.providers.*.responsesInputItemsSafetyMargin":
+    "Model Provider Responses Input Items Safety Margin",
   "models.providers.*.timeoutSeconds": "Model Provider Request Timeout",
   "models.providers.*.region": "Model Provider Region",
   "models.providers.*.injectNumCtxForOpenAICompat": "Model Provider Inject num_ctx (OpenAI Compat)",
@@ -643,6 +645,8 @@ export const FIELD_LABELS: Record<string, string> = {
   "models.providers.*.models[].compat.preserveNativeResponsesToolCallIds":
     "Preserve Native Responses Tool Call IDs",
   "models.providers.*.models[].compat.responsesMaxInputItems": "Model Responses Max Input Items",
+  "models.providers.*.models[].compat.responsesInputItemsSafetyMargin":
+    "Model Responses Input Items Safety Margin",
   "models.providers.*.models[].agentRuntime": "Model Runtime",
   "models.providers.*.models[].agentRuntime.id": "Model Runtime ID",
   "models.providers.*.models[].mediaInput": "Model Media Input",
