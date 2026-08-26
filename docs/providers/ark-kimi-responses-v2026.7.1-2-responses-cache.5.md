@@ -23,8 +23,10 @@ the `.5` changes:
   remain valid conversation anchors across repeated compactions.
 
 The custom build remains based on official OpenClaw `v2026.7.1-2`. It is not an
-official OpenClaw release. Until the `.5` Git tag is published, use the named
-development branch and record the checked-out commit before deployment.
+official OpenClaw release. Use the immutable
+`v2026.7.1-2-responses-cache.5` tag for deployment. Use the named development
+branch only when testing later branch changes, and record the checked-out
+commit.
 
 ## Before you begin
 
@@ -43,21 +45,22 @@ existing auth profile or secret provider.
 
 ## Upgrade from .4
 
-Fetch and check out the development branch:
+Fetch and check out the published tag:
+
+```bash
+git fetch origin --tags
+git checkout v2026.7.1-2-responses-cache.5
+git rev-parse HEAD
+```
+
+Record the commit printed by `git rev-parse HEAD`. To test branch changes made
+after the published tag, use the development branch instead:
 
 ```bash
 git fetch origin
 git switch ark-custom-2026.7.1-2-responses-cache.5
 git pull --ff-only
 git rev-parse HEAD
-```
-
-Record the commit printed by `git rev-parse HEAD`. After the `.5` tag is
-published, prefer the immutable tag instead:
-
-```bash
-git fetch origin --tags
-git checkout v2026.7.1-2-responses-cache.5
 ```
 
 Install and build from source:
