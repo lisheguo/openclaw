@@ -1,14 +1,25 @@
-# OpenClaw v2026.7.1-2-responses-cache.5 开发版
+# OpenClaw v2026.7.1-2-responses-cache.6 开发版
 
 > 本分支基于 OpenClaw 官方 v2026.7.1-2，是个人定制版本，并非 OpenClaw 官方发行版。
-> 发布版本：`v2026.7.1-2-responses-cache.5`
-> 开发分支：`ark-custom-2026.7.1-2-responses-cache.5`
+> 发布版本：`v2026.7.1-2-responses-cache.6`
+> 开发分支：`ark-custom-2026.7.1-2-responses-cache.6`
 
-[下载 .5 Tag ZIP](https://github.com/lisheguo/openclaw/archive/refs/tags/v2026.7.1-2-responses-cache.5.zip) · [查看 .5 Tag](https://github.com/lisheguo/openclaw/tree/v2026.7.1-2-responses-cache.5) · [openclaw.json 中文配置汇总](OPENCLAW_JSON_CUSTOM_CONFIG.zh-CN.md) · [.5 升级与验收说明](docs/providers/ark-kimi-responses-v2026.7.1-2-responses-cache.5.md) · [Kimi 原生工具 ID 配置说明](docs/providers/ark-kimi-native-responses-tool-call-ids.md) · [Ark .4 修复与升级测试说明](docs/providers/ark-responses-stale-response-id-v2026.7.1-2-responses-cache.4.md) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
+[下载 .6 Tag ZIP](https://github.com/lisheguo/openclaw/archive/refs/tags/v2026.7.1-2-responses-cache.6.zip) · [查看 .6 Tag](https://github.com/lisheguo/openclaw/tree/v2026.7.1-2-responses-cache.6) · [.6 升级与验收说明](docs/providers/responses-item-aware-compaction-v2026.7.1-2-responses-cache.6.md) · [openclaw.json 中文配置汇总](OPENCLAW_JSON_CUSTOM_CONFIG.zh-CN.md) · [.5 升级与验收说明](docs/providers/ark-kimi-responses-v2026.7.1-2-responses-cache.5.md) · [Kimi 原生工具 ID 配置说明](docs/providers/ark-kimi-native-responses-tool-call-ids.md) · [Ark .4 修复与升级测试说明](docs/providers/ark-responses-stale-response-id-v2026.7.1-2-responses-cache.4.md) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
 
 ## 这个定制版增加了什么
 
-### 1. Ark Kimi K3 原生工具调用 ID
+### 1. Item-aware compaction 修复
+
+`.6` 修复了按 Responses 输入项目数触发压缩时只触发、不保证压缩后项目数降到安全目标的问题。
+
+- 配置 `responsesMaxInputItems: 1000`、安全边距 150 时，仍在估算达到 850 项时触发。
+- 压缩目标再保留一个安全边距，目标约为 700 项，避免紧接着再次越过阈值。
+- 切分同时满足 token 保留和项目数量限制，并保持消息及工具调用/结果的完整边界。
+- 继续沿用 `.5` 的配置字段，不需要修改现有 `openclaw.json`。
+
+完整升级、验收和回滚步骤见 [.6 升级与验收说明](docs/providers/responses-item-aware-compaction-v2026.7.1-2-responses-cache.6.md)。
+
+### 2. Ark Kimi K3 原生工具调用 ID
 
 Ark 托管的 Kimi Responses 模型可能返回 `read_0`、`exec_7` 等原生
 `call_id`。本版本新增模型级 capability
@@ -23,14 +34,14 @@ Ark 托管的 Kimi Responses 模型可能返回 `read_0`、`exec_7` 等原生
 
 完整配置、验证和回滚规则见 [Kimi 原生工具 ID 配置说明](docs/providers/ark-kimi-native-responses-tool-call-ids.md)。
 
-### 2. Overflow compaction 长会话修复
+### 3. Overflow compaction 长会话修复
 
 - 一段连续 overflow 恢复仍最多压缩三次，避免无限循环。
 - 当一次非 overflow 尝试证明会话已经恢复后，重新提供下一段 overflow 的压缩预算。
 - attempt 内压缩已经持久化当前用户消息时，从 transcript 继续，不再重放原始 prompt。
 - 避免重复用户消息、重复工具调用及工具结果错配。
 
-### 3. Ark stale response ID 自动恢复
+### 4. Ark stale response ID 自动恢复
 
 Ark（火山方舟）在 `previous_response_id` 过期或不存在时会返回
 `InvalidParameter.PreviousResponseNotFound`。本版本会把该错误准确识别为
@@ -44,7 +55,7 @@ Ark（火山方舟）在 `previous_response_id` 过期或不存在时会返回
 
 无需增加 Ark 配置；继续使用现有 `openai-responses` Provider 配置即可。
 
-### 4. DashScope Responses Session Cache
+### 5. DashScope Responses Session Cache
 
 指定模型可以显式开启 DashScope 会话缓存，并使用 OpenAI Responses 兼容的 `previous_response_id` 串联同一会话：
 
@@ -54,24 +65,25 @@ Ark（火山方舟）在 `previous_response_id` 过期或不存在时会返回
 - 工具执行结果继续以 Responses `function_call_output` 格式发送。
 - 默认关闭，只影响明确配置的模型；其他模型不会被自动开启。
 
-### 5. 严格的会话隔离和安全降级
+### 6. 严格的会话隔离和安全降级
 
 只有 provider、API 类型、模型 ID、base URL、OpenClaw session ID、auth profile ID、响应 ID 和来源信息全部一致时，才允许复用上一轮响应。任何信息缺失或不一致都会安全降级为完整历史请求，避免跨模型、跨账号、跨端点或跨会话错误复用缓存。
 
-### 6. 压缩边界和会话分支处理
+### 7. 压缩边界和会话分支处理
 
 - 上下文压缩后的第一轮会重新建立响应链，后续轮次可从新响应继续串联。
 - 只读取当前活动会话分支，不会复用废弃分支中的响应。
 - ARK 输入项目数量保护改为 model/provider capability；只有显式设置 `responsesMaxInputItems` 的 Responses 模型才启用。
 - `responsesInputItemsSafetyMargin` 可在 model/provider 层配置，默认安全边距为 150；当前用户输入也计入项目数估算。
+- `.6` 在触发后将压缩目标继续下调一个安全边距；1000/150 配置对应 850 项触发、约 700 项目标。
 - `compactionSummary` 会作为真实会话锚点保留，避免连续压缩后丢失摘要上下文或错误重放原始 prompt。
 - 旧的 `agents.defaults.compaction.maxInputItems` 暂时保留为兼容 fallback，原有 token 压缩保持不变。
 
-### 7. OpenClaw 可执行的配置维护说明
+### 8. OpenClaw 可执行的配置维护说明
 
 新增 [openclaw.json 中文配置汇总](OPENCLAW_JSON_CUSTOM_CONFIG.zh-CN.md) 和 [DashScope Responses Session Cache 配置文档](docs/providers/dashscope-responses-session-cache.md)，既供人阅读，也作为 OpenClaw 后期修改 `openclaw.json` 时的执行约束。它们说明了如何安全合并目标模型配置、保留已有字段和凭据、验证、重启、回滚，以及如何避免泄露 API Key。
 
-### 8. 百炼工具 Schema 兼容修复
+### 9. 百炼工具 Schema 兼容修复
 
 百炼官方确认，Responses Session Cache 请求中的工具定义不支持 `patternProperties`，只支持 `additionalProperties`。本版本在源码层完成兼容转换：
 

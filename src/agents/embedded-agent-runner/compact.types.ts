@@ -1,3 +1,4 @@
+import type { Model } from "openclaw/plugin-sdk/llm";
 /**
  * Shared parameter and metric types for embedded-agent compaction.
  */
@@ -6,7 +7,6 @@ import type { ReasoningLevel, ThinkLevel } from "../../auto-reply/thinking.js";
 import type { ChatType } from "../../channels/chat-type.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { ContextEngine, ContextEngineRuntimeContext } from "../../context-engine/types.js";
-import type { Model } from "openclaw/plugin-sdk/llm";
 import type { CommandQueueEnqueueFn } from "../../process/command-queue.types.js";
 import type { SkillSnapshot } from "../../skills/types.js";
 import type { ExecElevatedDefaults, ExecToolDefaults } from "../bash-tools.exec-types.js";
@@ -49,6 +49,8 @@ export type CompactEmbeddedAgentSessionParams = {
   sessionFile: string;
   /** Optional caller-observed live prompt tokens used for compaction diagnostics. */
   currentTokenCount?: number;
+  /** Per-run cap for the summary plus retained provider input items. */
+  maxInputItemsAfterCompaction?: number;
   workspaceDir: string;
   /** Optional task working directory; workspaceDir remains the agent bootstrap workspace. */
   cwd?: string;

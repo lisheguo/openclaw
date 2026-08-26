@@ -47,6 +47,7 @@ import type {
   AgentTool,
   BranchSummaryResult as CoreBranchSummaryResult,
   CompactionResult,
+  CompactionSettings,
   ThinkingLevel,
 } from "../runtime/index.js";
 import {
@@ -1847,14 +1848,18 @@ export class AgentSession {
    * Aborts current agent operation first.
    * @param customInstructions Optional instructions for the compaction summary
    */
-  async compact(customInstructions?: string): Promise<CompactionResult> {
+  async compact(
+    customInstructions?: string,
+    runtimeSettings?: Pick<CompactionSettings, "maxInputItemsAfterCompaction">,
+  ): Promise<CompactionResult> {
     return await this.runWithSessionWriteLock(
-      async () => await this.compactWithSessionWriteLock(customInstructions),
+      async () => await this.compactWithSessionWriteLock(customInstructions, runtimeSettings),
     );
   }
 
   private async compactWithSessionWriteLock(
     customInstructions?: string,
+    runtimeSettings?: Pick<CompactionSettings, "maxInputItemsAfterCompaction">,
   ): Promise<CompactionResult> {
     this.disconnectFromAgent();
     await this.abort();
@@ -1862,7 +1867,10 @@ export class AgentSession {
     this.emit({ type: "compaction_start", reason: "manual" });
 
     try {
-      const settings = this.settingsManager.getCompactionSettings();
+      const settings = {
+        ...this.settingsManager.getCompactionSettings(),
+        ...runtimeSettings,
+      };
       const outcome = await this.runCompactionWork({
         customInstructions,
         mode: "manual",

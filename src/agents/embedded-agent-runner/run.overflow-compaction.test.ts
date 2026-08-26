@@ -2387,6 +2387,40 @@ describe("runEmbeddedAgent overflow compaction trigger routing", () => {
     expect(result.meta.error).toBeUndefined();
   });
 
+  it("passes an item-aware target into item-triggered overflow compaction", async () => {
+    mockedRunEmbeddedAttempt
+      .mockResolvedValueOnce(
+        makeAttemptResult({
+          promptError: makeOverflowError(),
+          promptErrorSource: "precheck",
+          preflightRecovery: {
+            route: "compact_items_overflow",
+            estimatedPromptTokens: 44_554,
+            promptBudgetBeforeReserve: 206_000,
+            overflowTokens: 0,
+            estimatedInputItems: 850,
+            inputItemsLimit: 1000,
+            inputItemsSafetyMargin: 150,
+          },
+        }),
+      )
+      .mockResolvedValueOnce(makeAttemptResult({ promptError: null }));
+    mockedCompactDirect.mockResolvedValueOnce(
+      makeCompactionSuccess({
+        summary: "Compacted session",
+        firstKeptEntryId: "entry-items",
+        tokensBefore: 44_554,
+      }),
+    );
+
+    const result = await runEmbeddedAgent(overflowBaseRunParams);
+
+    expectRecordFields(expectMockCallFields(mockedCompactDirect, {}).runtimeContext, {
+      maxInputItemsAfterCompaction: 700,
+    });
+    expect(result.meta.error).toBeUndefined();
+  });
+
   it("passes minimally over-budget count when overflow text is confirmed but unparseable", async () => {
     mockedExtractObservedOverflowTokenCount.mockReturnValueOnce(undefined);
     mockedRunEmbeddedAttempt

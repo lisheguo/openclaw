@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Model } from "../../../llm/types.js";
 import { shouldPreemptivelyCompactBeforePrompt } from "./preemptive-compaction.js";
-import { resolveResponsesMaxInputItems } from "./responses-input-items-limit.js";
+import {
+  resolveResponsesCompactionInputItemsTarget,
+  resolveResponsesMaxInputItems,
+} from "./responses-input-items-limit.js";
 
 function createModel(params?: {
   api?: Model["api"];
@@ -31,6 +34,33 @@ function createModel(params?: {
 }
 
 describe("resolveResponsesMaxInputItems", () => {
+  it("leaves a second safety-margin window after item compaction", () => {
+    expect(
+      resolveResponsesCompactionInputItemsTarget({
+        maxInputItems: 1000,
+        inputItemsSafetyMargin: 150,
+      }),
+    ).toBe(700);
+  });
+
+  it("keeps the pending prompt below the threshold with a zero margin", () => {
+    expect(
+      resolveResponsesCompactionInputItemsTarget({
+        maxInputItems: 1000,
+        inputItemsSafetyMargin: 0,
+      }),
+    ).toBe(998);
+  });
+
+  it("keeps the pending prompt below the threshold with a one-item margin", () => {
+    expect(
+      resolveResponsesCompactionInputItemsTarget({
+        maxInputItems: 1000,
+        inputItemsSafetyMargin: 1,
+      }),
+    ).toBe(997);
+  });
+
   it("uses a model-level Responses limit without an agent global", () => {
     expect(
       resolveResponsesMaxInputItems({

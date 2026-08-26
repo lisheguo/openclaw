@@ -74,3 +74,21 @@ export function resolveResponsesMaxInputItems(params: {
     ? { source: "disabled" }
     : { maxInputItems: legacyLimit, inputItemsSafetyMargin, source: "legacy-agent" };
 }
+
+/**
+ * Leaves one additional safety-margin window after item-triggered compaction.
+ * The two-item minimum keeps the pending prompt below the inclusive threshold.
+ */
+export function resolveResponsesCompactionInputItemsTarget(params: {
+  maxInputItems?: number;
+  inputItemsSafetyMargin?: number;
+}): number | undefined {
+  const maxInputItems = normalizePositiveInteger(params.maxInputItems);
+  if (maxInputItems === undefined) {
+    return undefined;
+  }
+  const safetyMargin = normalizeNonNegativeInteger(params.inputItemsSafetyMargin) ?? 0;
+  const triggerThreshold = Math.max(1, maxInputItems - safetyMargin);
+  const recoveryHeadroom = Math.max(2, Math.min(safetyMargin, triggerThreshold - 1));
+  return Math.max(1, triggerThreshold - recoveryHeadroom);
+}

@@ -1536,10 +1536,14 @@ async function compactEmbeddedAgentSessionDirectOnce(
             // the sanity check below becomes a no-op instead of crashing compaction.
           }
           const activeSession = session;
+          const runtimeCompactionSettings =
+            params.maxInputItemsAfterCompaction === undefined
+              ? undefined
+              : { maxInputItemsAfterCompaction: params.maxInputItemsAfterCompaction };
           const result = await compactWithSafetyTimeout(
             () => {
               setCompactionSafeguardCancelReason(compactionSessionManager, undefined);
-              return activeSession.compact(params.customInstructions);
+              return activeSession.compact(params.customInstructions, runtimeCompactionSettings);
             },
             compactionTimeoutMs,
             {

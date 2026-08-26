@@ -9,13 +9,15 @@ import {
   MIN_PROMPT_BUDGET_TOKENS,
 } from "../../agent-compaction-constants.js";
 import { SAFETY_MARGIN } from "../../compaction.js";
-import type { AgentMessage, BashExecutionMessage } from "../../runtime/index.js";
 import {
   BRANCH_SUMMARY_PREFIX,
   BRANCH_SUMMARY_SUFFIX,
   bashExecutionToText,
   COMPACTION_SUMMARY_PREFIX,
   COMPACTION_SUMMARY_SUFFIX,
+  estimateInputItems,
+  type AgentMessage,
+  type BashExecutionMessage,
 } from "../../runtime/index.js";
 import { estimateToolResultReductionPotential } from "../tool-result-truncation.js";
 import type { PreemptiveCompactionRoute } from "./preemptive-compaction.types.js";
@@ -267,39 +269,6 @@ function estimateMessageTokenPressure(message: AgentMessage): number {
  * image, file), allowing a configured model/provider limit to trigger
  * pre-prompt compaction before the provider rejects the request.
  */
-export function estimateInputItems(messages: AgentMessage[]): number {
-  let items = 0;
-  for (const message of messages) {
-    const record = message as unknown as Record<string, unknown>;
-    items += 1; // base message item
-    const content = record.content;
-    if (Array.isArray(content)) {
-      for (const block of content) {
-        if (typeof block !== "object" || block === null) continue;
-        const b = block as Record<string, unknown>;
-        const type = typeof b.type === "string" ? b.type : "";
-        if (
-          type === "toolCall" ||
-          type === "tool_use" ||
-          type === "toolResult" ||
-          type === "tool_result" ||
-          type === "thinking" ||
-          type === "image" ||
-          type === "image_url" ||
-          type === "file"
-        ) {
-          items += 1;
-        }
-      }
-    }
-    const toolCalls = record.toolCalls ?? record.tool_calls;
-    if (Array.isArray(toolCalls)) {
-      items += toolCalls.length;
-    }
-  }
-  return items;
-}
-
 export function estimateLlmBoundaryTokenPressure(params: {
   messages: AgentMessage[];
   systemPrompt?: string;

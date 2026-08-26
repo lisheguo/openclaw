@@ -123,7 +123,9 @@ This capability is separate from DashScope session chaining. Configure it only o
 
 A provider may set `responsesMaxInputItems` and `responsesInputItemsSafetyMargin` as defaults for its models. Limit resolution order is model capability, provider capability, legacy `agents.defaults.compaction.maxInputItems`, then disabled. Safety-margin resolution order is model capability, provider capability, then the default `150`. A margin has no effect without a resolved limit. The Agent-level limit remains a compatibility fallback but is no longer the recommended entry point.
 
-When the resolved limit is `1000` and the configured or default safety margin is `150`, item-based preemptive compaction starts at an estimated 850 input items. For example, setting `responsesInputItemsSafetyMargin: 200` starts it at 800. Without a resolved limit, the safety margin and item-count compaction are disabled while token-based compaction continues unchanged. Item-triggered compaction also breaks any existing `previous_response_id` chain; the next request performs a full stored rebuild.
+When the resolved limit is `1000` and the configured or default safety margin is `150`, item-based preemptive compaction starts at an estimated 850 input items. The `.6` item-aware compactor then targets approximately 700 items, reserving another safety-margin window before the next provider request. For example, a margin of `200` starts compaction at 800 and targets approximately 600. The cut point must also preserve complete message and tool-call/result boundaries, so the retained count can be slightly lower than the computed target.
+
+This behavior reuses the existing limit and safety-margin settings; `.6` adds no new `openclaw.json` key. Without a resolved limit, the safety margin and item-count compaction are disabled while token-based compaction continues unchanged. Item-triggered compaction also breaks any existing `previous_response_id` chain; the next request performs a full stored rebuild.
 
 ## Verification checklist
 
@@ -137,6 +139,8 @@ After editing, verify all of the following:
 - no `store` or `cache_control` field was added
 - unrelated providers and models are unchanged
 - no secret value is displayed in output or logs
+- a 1000/150 model reports an 850-item trigger and an approximately 700-item post-compaction target
+- retained tool calls and tool results remain paired after item-triggered compaction
 
 At runtime, the first request sends full history. After a successful response returns an id, the next request can send `previous_response_id` plus only the incremental messages.
 
@@ -150,3 +154,7 @@ To disable session chaining for a model:
 4. Remove the target model/provider `responsesMaxInputItems` and `responsesInputItemsSafetyMargin` only if item-limit protection is no longer wanted. Remove the legacy Agent-level fallback only after all affected models have migrated.
 
 Rollback returns the model to full-history requests without rewriting conversation history.
+
+## See also
+
+- [Responses item-aware compaction .6 upgrade and acceptance](/providers/responses-item-aware-compaction-v2026.7.1-2-responses-cache.6)

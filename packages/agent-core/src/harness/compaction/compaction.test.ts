@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { createAssistantMessageEventStream } from "../../llm.js";
 import type { AssistantMessage, Model, StreamFn } from "../../llm.js";
+import type { SessionTreeEntry } from "../types.js";
 import {
   calculateContextTokens,
   compact,
   estimateContextTokens,
+  estimateInputItems,
   generateSummary,
+  prepareCompaction,
 } from "./compaction.js";
 import { createFileOps } from "./utils.js";
 
@@ -120,6 +123,35 @@ describe("calculateContextTokens", () => {
     expect(estimate.tokens).toBeGreaterThan(149_874);
     expect(estimate.tokens).toBeLessThan(927_907);
     expect(estimate.lastUsageIndex).toBe(0);
+  });
+});
+
+describe("item-aware compaction preparation", () => {
+  it("reduces a low-token transcript to the per-run input-item target", () => {
+    const entries: SessionTreeEntry[] = Array.from({ length: 842 }, (_, index) => ({
+      type: "message" as const,
+      id: `entry-${index}`,
+      parentId: index === 0 ? null : `entry-${index - 1}`,
+      timestamp: new Date(index).toISOString(),
+      message: { role: "user" as const, content: `m${index}`, timestamp: index },
+    }));
+
+    const result = prepareCompaction(entries, {
+      enabled: true,
+      reserveTokens: 16_384,
+      keepRecentTokens: 20_000,
+      maxInputItemsAfterCompaction: 700,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok || !result.value) {
+      throw new Error("expected item-aware compaction preparation");
+    }
+    const retainedMessages = entries
+      .slice(entries.findIndex((entry) => entry.id === result.value?.firstKeptEntryId))
+      .flatMap((entry) => (entry.type === "message" ? [entry.message] : []));
+    expect(result.value.messagesToSummarize).toHaveLength(143);
+    expect(estimateInputItems(retainedMessages) + 1).toBe(700);
   });
 });
 

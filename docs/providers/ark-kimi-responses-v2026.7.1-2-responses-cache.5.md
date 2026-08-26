@@ -9,6 +9,11 @@ title: "Ark Kimi Responses cache .5 upgrade and acceptance"
 
 # Upgrade and validate Ark Kimi Responses cache .5
 
+<Note>
+  This page records the immutable `.5` behavior. For the later item-aware
+  compaction correction, use the [`.6` upgrade and acceptance guide](/providers/responses-item-aware-compaction-v2026.7.1-2-responses-cache.6).
+</Note>
+
 This guide upgrades the custom OpenClaw Responses cache build from
 `v2026.7.1-2-responses-cache.4` to the `.5` development branch and validates
 the `.5` changes:
@@ -298,6 +303,7 @@ need to be rewritten.
 
 ## See also
 
+- [Responses item-aware compaction .6 upgrade and acceptance](/providers/responses-item-aware-compaction-v2026.7.1-2-responses-cache.6)
 - [Ark Kimi native Responses tool call IDs](/providers/ark-kimi-native-responses-tool-call-ids)
 - [Ark stale response ID recovery](/providers/ark-responses-stale-response-id-v2026.7.1-2-responses-cache.4)
 - [DashScope Responses session cache](/providers/dashscope-responses-session-cache)

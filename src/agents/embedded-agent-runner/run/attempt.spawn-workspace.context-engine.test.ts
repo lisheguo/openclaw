@@ -2166,6 +2166,52 @@ describe("runEmbeddedAttempt context engine sessionKey forwarding", () => {
     expect(hoisted.preemptiveCompactionCalls.at(-1)).not.toHaveProperty("unwindowedMessages");
   });
 
+  it("preserves item-overflow facts for outer compaction recovery", async () => {
+    const messages = Array.from({ length: 849 }, (_, index) => ({
+      role: "user" as const,
+      content: `m${index}`,
+      timestamp: index,
+    }));
+    const result = await createContextEngineAttemptRunner({
+      contextEngine: createContextEngineBootstrapAndAssemble(),
+      sessionKey,
+      tempPaths,
+      sessionMessages: messages,
+      attemptOverrides: {
+        contextTokenBudget: 1_000_000,
+        model: {
+          api: "openai-responses",
+          provider: "ark",
+          compat: {},
+          contextWindow: 1_000_000,
+          input: ["text"],
+        } as never,
+        provider: "ark",
+        config: {
+          models: {
+            providers: {
+              ark: {
+                api: "openai-responses",
+                baseUrl: "https://example.test/v1",
+                models: [],
+                responsesMaxInputItems: 1000,
+                responsesInputItemsSafetyMargin: 150,
+              },
+            },
+          },
+        } as OpenClawConfig,
+      },
+    });
+
+    expect(result.promptErrorSource).toBe("precheck");
+    expect(result.preflightRecovery).toMatchObject({
+      route: "compact_items_overflow",
+      estimatedInputItems: 850,
+      inputItemsLimit: 1000,
+      inputItemsSafetyMargin: 150,
+    });
+  });
+
   it("skips the generic precheck when the context engine owns compaction", async () => {
     let sawPrompt = false;
     const hugeHistory = "large raw history ".repeat(2_000);

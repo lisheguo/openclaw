@@ -237,6 +237,7 @@ import {
 } from "./run/incomplete-turn.js";
 import type { RunEmbeddedAgentParams } from "./run/params.js";
 import { buildEmbeddedRunPayloads } from "./run/payloads.js";
+import { resolveResponsesCompactionInputItemsTarget } from "./run/responses-input-items-limit.js";
 import { handleRetryLimitExhaustion } from "./run/retry-limit.js";
 import {
   buildBeforeModelResolveAttachments,
@@ -2796,6 +2797,13 @@ async function runEmbeddedAgentInternal(
               let previousSessionId: string | undefined;
               await runOwnsCompactionBeforeHook("overflow recovery");
               try {
+                const maxInputItemsAfterCompaction =
+                  preflightRecovery?.route === "compact_items_overflow"
+                    ? resolveResponsesCompactionInputItemsTarget({
+                        maxInputItems: preflightRecovery.inputItemsLimit,
+                        inputItemsSafetyMargin: preflightRecovery.inputItemsSafetyMargin,
+                      })
+                    : undefined;
                 const overflowCompactionRuntimeContext = {
                   ...buildEmbeddedCompactionRuntimeContext({
                     sessionKey: params.sessionKey,
@@ -2842,6 +2850,9 @@ async function runEmbeddedAgentInternal(
                   trigger: "overflow",
                   ...(overflowTokenCountForCompaction !== undefined
                     ? { currentTokenCount: overflowTokenCountForCompaction }
+                    : {}),
+                  ...(maxInputItemsAfterCompaction !== undefined
+                    ? { maxInputItemsAfterCompaction }
                     : {}),
                   diagId: overflowDiagId,
                   attempt: overflowCompactionAttempts,

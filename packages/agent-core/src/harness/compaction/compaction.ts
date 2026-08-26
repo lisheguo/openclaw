@@ -137,6 +137,8 @@ export interface CompactionSettings {
   reserveTokens: number;
   /** Approximate recent-context tokens to keep after compaction. */
   keepRecentTokens: number;
+  /** Optional per-run cap for the summary plus retained input items. */
+  maxInputItemsAfterCompaction?: number;
 }
 
 /** Default compaction settings used by the harness. */
@@ -316,6 +318,41 @@ export function estimateTokens(message: AgentMessage): number {
 
   return 0;
 }
+
+/** Estimate provider-boundary input items represented by transcript messages. */
+export function estimateInputItems(messages: AgentMessage[]): number {
+  let items = 0;
+  for (const message of messages) {
+    const record = message as unknown as Record<string, unknown>;
+    items += 1;
+    const content = record.content;
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (!block || typeof block !== "object") {
+          continue;
+        }
+        const type = (block as Record<string, unknown>).type;
+        if (
+          type === "toolCall" ||
+          type === "tool_use" ||
+          type === "toolResult" ||
+          type === "tool_result" ||
+          type === "thinking" ||
+          type === "image" ||
+          type === "image_url" ||
+          type === "file"
+        ) {
+          items += 1;
+        }
+      }
+    }
+    const toolCalls = record.toolCalls ?? record.tool_calls;
+    if (Array.isArray(toolCalls)) {
+      items += toolCalls.length;
+    }
+  }
+  return items;
+}
 function findValidCutPoints(
   entries: SessionTreeEntry[],
   startIndex: number,
@@ -396,6 +433,7 @@ export function findCutPoint(
   startIndex: number,
   endIndex: number,
   keepRecentTokens: number,
+  maxInputItemsAfterCompaction?: number,
 ): CutPointResult {
   const cutPoints = findValidCutPoints(entries, startIndex, endIndex);
 
@@ -422,6 +460,32 @@ export function findCutPoint(
       }
       break;
     }
+  }
+  if (maxInputItemsAfterCompaction !== undefined) {
+    // The synthetic compaction summary itself consumes one input item. Walk
+    // backward until the retained tail fills the remaining item budget.
+    const retainedItemsBudget = Math.max(0, Math.floor(maxInputItemsAfterCompaction) - 1);
+    let retainedItems = 0;
+    let itemCutIndex = cutPoints[0];
+    for (let i = endIndex - 1; i >= startIndex; i--) {
+      const message = getMessageFromEntryForCompaction(entries[i]);
+      if (!message) {
+        continue;
+      }
+      const nextItems = retainedItems + estimateInputItems([message]);
+      if (nextItems > retainedItemsBudget) {
+        itemCutIndex = cutPoints[cutPoints.length - 1];
+        for (const cutPoint of cutPoints) {
+          if (cutPoint > i) {
+            itemCutIndex = cutPoint;
+            break;
+          }
+        }
+        break;
+      }
+      retainedItems = nextItems;
+    }
+    cutIndex = Math.max(cutIndex, itemCutIndex);
   }
   while (cutIndex > startIndex) {
     const prevEntry = entries[cutIndex - 1];
@@ -703,7 +767,13 @@ export function prepareCompaction(
 
   const tokensBefore = estimateContextTokens(buildSessionContext(pathEntries).messages).tokens;
 
-  const cutPoint = findCutPoint(pathEntries, boundaryStart, boundaryEnd, settings.keepRecentTokens);
+  const cutPoint = findCutPoint(
+    pathEntries,
+    boundaryStart,
+    boundaryEnd,
+    settings.keepRecentTokens,
+    settings.maxInputItemsAfterCompaction,
+  );
   const firstKeptEntry = pathEntries[cutPoint.firstKeptEntryIndex];
   if (!firstKeptEntry?.id) {
     return err(

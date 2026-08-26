@@ -518,6 +518,7 @@ import {
   estimateRenderedLlmBoundaryTokenPressure,
   formatPrePromptPrecheckLog,
   shouldPreemptivelyCompactBeforePrompt,
+  type PreemptiveCompactionDecision,
 } from "./preemptive-compaction.js";
 import { resolveResponsesMaxInputItems } from "./responses-input-items-limit.js";
 import {
@@ -528,8 +529,13 @@ import {
 import type { EmbeddedRunAttemptParams, EmbeddedRunAttemptResult } from "./types.js";
 
 type PreflightRecoveryBudgetSnapshot = Pick<
-  MidTurnPrecheckRequest,
-  "estimatedPromptTokens" | "promptBudgetBeforeReserve" | "overflowTokens"
+  PreemptiveCompactionDecision,
+  | "estimatedPromptTokens"
+  | "promptBudgetBeforeReserve"
+  | "overflowTokens"
+  | "estimatedInputItems"
+  | "inputItemsLimit"
+  | "inputItemsSafetyMargin"
 >;
 
 // Carries the measured prompt budget into the outer recovery loop. The synthetic
@@ -540,6 +546,9 @@ function buildPreflightRecoveryBudgetSnapshot(snapshot: PreflightRecoveryBudgetS
     estimatedPromptTokens: snapshot.estimatedPromptTokens,
     promptBudgetBeforeReserve: snapshot.promptBudgetBeforeReserve,
     overflowTokens: snapshot.overflowTokens,
+    estimatedInputItems: snapshot.estimatedInputItems,
+    inputItemsLimit: snapshot.inputItemsLimit,
+    inputItemsSafetyMargin: snapshot.inputItemsSafetyMargin,
   };
 }
 
@@ -4967,17 +4976,11 @@ export async function runEmbeddedAttempt(
               skipPromptSubmission = true;
             }
           }
-          if (preemptiveCompaction?.shouldCompact) {
-            preflightRecovery =
-              preemptiveCompaction.route === "compact_then_truncate"
-                ? {
-                    route: "compact_then_truncate",
-                    ...buildPreflightRecoveryBudgetSnapshot(preemptiveCompaction),
-                  }
-                : {
-                    route: "compact_only",
-                    ...buildPreflightRecoveryBudgetSnapshot(preemptiveCompaction),
-                  };
+          if (preemptiveCompaction?.shouldCompact && preemptiveCompaction.route !== "fits") {
+            preflightRecovery = {
+              route: preemptiveCompaction.route,
+              ...buildPreflightRecoveryBudgetSnapshot(preemptiveCompaction),
+            };
             promptError = new Error(PREEMPTIVE_OVERFLOW_ERROR_TEXT);
             promptErrorSource = "precheck";
             log.warn(

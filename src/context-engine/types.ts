@@ -321,6 +321,8 @@ export type ContextEngineRuntimeContext = Record<string, unknown> & {
   agentHarnessId?: string;
   /** Best-effort current prompt/context token estimate for this turn. */
   currentTokenCount?: number;
+  /** Host-computed cap for the summary plus retained provider input items. */
+  maxInputItemsAfterCompaction?: number;
   /** Optional prompt-cache telemetry for cache-aware engines. */
   promptCache?: ContextEnginePromptCacheInfo;
   /**

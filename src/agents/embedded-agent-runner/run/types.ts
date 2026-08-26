@@ -145,6 +145,9 @@ export type EmbeddedRunAttemptResult = {
         estimatedPromptTokens?: number;
         promptBudgetBeforeReserve?: number;
         overflowTokens?: number;
+        estimatedInputItems?: number;
+        inputItemsLimit?: number;
+        inputItemsSafetyMargin?: number;
         handled: true;
         truncatedCount?: number;
       }
@@ -154,6 +157,9 @@ export type EmbeddedRunAttemptResult = {
         estimatedPromptTokens?: number;
         promptBudgetBeforeReserve?: number;
         overflowTokens?: number;
+        estimatedInputItems?: number;
+        inputItemsLimit?: number;
+        inputItemsSafetyMargin?: number;
         handled?: false;
       };
   sessionIdUsed: string;

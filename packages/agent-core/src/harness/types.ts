@@ -749,6 +749,8 @@ export interface CompactionSettings {
   enabled: boolean;
   reserveTokens: number;
   keepRecentTokens: number;
+  /** Optional per-run cap for the summary plus retained input items. */
+  maxInputItemsAfterCompaction?: number;
 }
 
 /** Prepared compaction inputs exposed to hooks before a summary is generated. */
