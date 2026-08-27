@@ -3,6 +3,7 @@
 > 本分支基于 OpenClaw 官方 v2026.7.1-2，是个人定制版本，并非 OpenClaw 官方发行版。
 > 发布版本：`v2026.7.1-2-responses-cache.6`
 > 开发分支：`ark-custom-2026.7.1-2-responses-cache.6`
+> 运行时版本：`2026.7.1`（沿用官方 correction build 的包版本；定制身份以分支、Tag 和 Commit 标识）
 
 [下载 .6 Tag ZIP](https://github.com/lisheguo/openclaw/archive/refs/tags/v2026.7.1-2-responses-cache.6.zip) · [查看 .6 Tag](https://github.com/lisheguo/openclaw/tree/v2026.7.1-2-responses-cache.6) · [.6 升级与验收说明](docs/providers/responses-item-aware-compaction-v2026.7.1-2-responses-cache.6.md) · [openclaw.json 中文配置汇总](OPENCLAW_JSON_CUSTOM_CONFIG.zh-CN.md) · [.5 升级与验收说明](docs/providers/ark-kimi-responses-v2026.7.1-2-responses-cache.5.md) · [Kimi 原生工具 ID 配置说明](docs/providers/ark-kimi-native-responses-tool-call-ids.md) · [Ark .4 修复与升级测试说明](docs/providers/ark-responses-stale-response-id-v2026.7.1-2-responses-cache.4.md) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
 

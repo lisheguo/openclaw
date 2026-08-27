@@ -20,6 +20,21 @@ The `.6` build keeps the `.5` provider, session-cache, native tool-call ID, stal
 response ID, and overflow-recovery behavior. It remains based on official
 OpenClaw `v2026.7.1-2` and is not an official OpenClaw release.
 
+## Release identity
+
+- Git tag: `v2026.7.1-2-responses-cache.6`
+- Development branch: `ark-custom-2026.7.1-2-responses-cache.6`
+- Runtime package version: `2026.7.1`
+- Feature payload commit: `6d2a85cf410695cb775f4ef6a58c73c6e5388479`
+
+The runtime package version intentionally follows the official correction-build
+convention and remains `2026.7.1`. Using `2026.7.1-2` in `package.json` would be
+treated as a prerelease by standard package managers and could fall outside the
+plugins' `openclaw >=2026.7.1` peer range. The branch, Git tag, GitHub Release,
+and feature payload commit carry the custom `.6` identity. The Git tag points to
+the later release-metadata commit; the feature payload commit identifies the
+exact reviewed source change included by that tag.
+
 ## Behavior
 
 The existing configuration continues to define the provider limit and safety
