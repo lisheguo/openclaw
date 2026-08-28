@@ -9,19 +9,19 @@ title: "responses-cache.7 长任务生命周期升级与验收"
 
 # responses-cache.7 长任务生命周期升级与验收
 
-`v2026.7.1-2-responses-cache.7` 是基于官方 `v2026.7.1-2` 和定制 `.6` 的候选版本。
-本文描述候选代码；在分支和 Tag 真正创建前，不应把它当作已发布版本下载或部署。
+`v2026.7.1-2-responses-cache.7` 是基于官方 `v2026.7.1-2` 和定制 `.6` 的个人定制版本，
+不是 OpenClaw 官方上游发行版。
 
-## 本次候选修复
+## 本次发布修复
 
 | 任务                | 修复                                                 | 预期结果                                                      |
 | ------------------- | ---------------------------------------------------- | ------------------------------------------------------------- |
 | `TEST-20260828-001` | 自托管首事件分类与流中空闲分类共用同一 locality 事实 | vLLM、SGLang、LM Studio 等使用 FQDN 时仍采用 300 秒首事件保护 |
 | `TEST-20260828-002` | Heartbeat 原样继承全局 `timeoutSeconds: 0`           | 不再被错误转换为 1 秒                                         |
 | `TEST-20260828-003` | 补齐根依赖 `node-llama-cpp@3.18.1` 的 pnpm lockfile  | `pnpm install --frozen-lockfile` 不再因 importer 不一致失败   |
-| `TEST-20260828-004` | 更新配置、Provider、Heartbeat 和发布候选文档         | 人和 OpenClaw 都能区分已发布 `.6` 与未发布 `.7` 候选          |
+| `TEST-20260828-004` | 更新配置、Provider、Heartbeat 和正式发布文档         | 人和 OpenClaw 都能识别 `.7` 的行为、配置与验收范围            |
 
-候选还包含归档中已审计的 Gate 1 和 Gate 2A 基础修复：
+本版本还包含归档中已审计的 Gate 1 和 Gate 2A 基础修复：
 
 - `agents.defaults.timeoutSeconds: 0` 关闭整轮 Agent 的外层截止时间。
 - 不限时运行仍保留 Provider 健康保护，避免请求永久无首事件或云端流永久静默。
@@ -101,14 +101,32 @@ pnpm install --lockfile-only --offline --frozen-lockfile
 4. 触发一次 Heartbeat，确认它继承 `0`，同时 Provider 无首事件时仍会触发有限健康保护。
 5. 测试后确认 Gateway PID、配置 SHA-256、源码和 dist 文件未被测试修改。
 
-真实“无事件 120/300 秒”测试耗时较长。发布候选可以先用 fake timers 的源码回归作为
-阻断证据，再在虚拟机进行一轮受控真实超时测试；不要通过杀死 Gateway 模拟 Provider 超时。
+真实“无事件 120/300 秒”测试耗时较长。发布验收使用 fake timers 的源码回归作为阻断
+证据，并在虚拟机进行受控真实超时测试；不要通过杀死 Gateway 模拟 Provider 超时。
 
-## 发布候选检查
+## 已完成验收
 
-- 代码、测试、lockfile 和文档必须来自同一 Commit。
-- 创建 `.7` 分支后再修改 README 中的分支状态。
-- 只有候选验收完成后才创建 `v2026.7.1-2-responses-cache.7` Tag。
+- Long-running lifecycle：`timeoutSeconds: 0` 的逻辑运行持续 15 分 23 秒，未出现
+  `timeoutMs=900000`，最终 `timedOut=false`。
+- LLM liveness：云端 120 秒、自托管 300 秒、本地端点保留创建/首事件保护；自托管 FQDN
+  分类专项回归通过。
+- Heartbeat：未设置专用超时时正确继承全局 `timeoutSeconds: 0`。
+- ReplyOperation：terminal owner hang 在 60 秒内有界收尾；重复 terminal 不续命，及时
+  `complete()` 会取消 timer，会话 lane 可以重新 admission。
+- Auto-Compaction：真实运行完成 `overflow → compact_only → transcript rotation`，无需用户
+  介入继续执行，保持同一 `runId` 并最终成功。
+- Build/Test：frozen lockfile、build 均通过；RC.7 生命周期专项测试 259/259 通过。
+
+## 已知非阻断项
+
+- `qwen3.8-max` 配置的 256K 上下文与 Provider 实际 prompt ceiling 仍存在偏差。
+- successor trajectory 的 `compactionCount` 记录存在展示层瑕疵，不影响压缩执行和恢复。
+- `/stop` 文本快捷命令 routing 可在后续版本独立优化。
+
+## 发布检查
+
+- 代码、测试、lockfile 和文档来自同一最终发布 Commit。
+- Tag `v2026.7.1-2-responses-cache.7` 与发布分支指向该 Commit。
 - Tag 创建后确认 Tag、分支和 Commit 指向一致，再提供 ZIP 下载链接。
 - 百炼额度不足时明确记为 `SKIP_NO_QUOTA`，不要用 `.4` 或 `.6` 历史在线证据冒充 `.7`。
 

@@ -1,6 +1,6 @@
-# OpenClaw responses-cache.7 候选配置汇总
+# OpenClaw responses-cache.7 配置汇总
 
-本文汇总个人定制版本 `v2026.7.1-2-responses-cache.7` 候选版本中与
+本文汇总个人定制版本 `v2026.7.1-2-responses-cache.7` 中与
 `openclaw.json` 有关的配置。它同时供运维人员和 OpenClaw 自身读取，目标是只修改
 指定模型，不覆盖已有 Provider、凭据、请求头或兼容设置。
 
@@ -245,7 +245,7 @@ Provider 原生 ID。
 
 ## 升级后自动生效的规则
 
-以下行为由 `.6` 及 `.7` 候选源码实现，不需要写入 `openclaw.json`：
+以下行为由 `.6` 及 `.7` 源码实现，不需要写入 `openclaw.json`：
 
 - Ark 返回 `InvalidParameter.PreviousResponseNotFound` 时，准确识别 stale response
   ID，并且只执行一次不带旧 ID 的 full rebuild。
