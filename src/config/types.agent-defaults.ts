@@ -391,6 +391,10 @@ export type AgentDefaultsConfig = {
   blockStreamingCoalesce?: BlockStreamingCoalesceConfig;
   /** Human-like delay between block replies. */
   humanDelay?: HumanDelayConfig;
+  /**
+   * Maximum duration for one agent run. Default: 172800 seconds (48 hours).
+   * Set to 0 to disable the outer run deadline; provider liveness watchdogs remain finite.
+   */
   timeoutSeconds?: number;
   /** Max inbound media size in MB for agent-visible attachments (text note or future image attach). */
   mediaMaxMb?: number;
@@ -440,7 +444,10 @@ export type AgentDefaultsConfig = {
     ackMaxChars?: number;
     /** Suppress tool error warning payloads during heartbeat runs. */
     suppressToolErrorWarnings?: boolean;
-    /** Run timeout in seconds for heartbeat agent turns. Unset uses global timeout or heartbeat cadence capped at 600 seconds. */
+    /**
+     * Run timeout in seconds for heartbeat agent turns. Unset inherits the global timeout,
+     * including 0 (unlimited), or uses the heartbeat cadence capped at 600 seconds.
+     */
     timeoutSeconds?: number;
     /**
      * If true, run heartbeat turns with lightweight bootstrap context.

@@ -16,7 +16,9 @@ import {
   isReplyRunAbortableForSignal,
   queueReplyRunMessage,
   REPLY_RUN_IDLE_SETTLE_TIMEOUT_MS,
+  REPLY_RUN_TERMINAL_SETTLE_TIMEOUT_MS,
   replyRunRegistry,
+  retainReplyOperationUntilComplete,
   runAfterReplyOperationClear,
   resolveActiveReplyRunSessionId,
   waitForReplyRunEndBySessionId,
@@ -766,5 +768,315 @@ describe("reply run registry", () => {
     expect(abortActiveReplyRuns({ mode: "compacting" })).toBe(true);
     expect(compactingOperation.result).toEqual({ kind: "aborted", code: "aborted_for_restart" });
     expect(runningOperation.result).toBeNull();
+  });
+
+  // ── Gate 2A: Terminal bounded settlement ──
+
+  it("CASE 1: running abortByUser with hanging owner settles after timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const operation = createReplyOperation({
+        sessionKey: "agent:main:case1",
+        sessionId: "session-case1",
+        resetTriggered: false,
+      });
+      operation.setPhase("running");
+
+      operation.abortByUser();
+
+      expect(operation.result).toEqual({ kind: "aborted", code: "aborted_by_user" });
+      // Registry stays active while waiting for owner to complete()
+      expect(replyRunRegistry.isActive("agent:main:case1")).toBe(true);
+
+      // Before timeout: still active
+      await vi.advanceTimersByTimeAsync(REPLY_RUN_TERMINAL_SETTLE_TIMEOUT_MS - 1);
+      expect(replyRunRegistry.isActive("agent:main:case1")).toBe(true);
+
+      // At timeout: force-settled
+      await vi.advanceTimersByTimeAsync(1);
+      expect(replyRunRegistry.isActive("agent:main:case1")).toBe(false);
+
+      const waitResult = await replyRunRegistry.waitForIdle("agent:main:case1", 100);
+      expect(waitResult).toBe(true);
+    } finally {
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("CASE 2: running abortForRestart with hanging owner settles after timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const operation = createReplyOperation({
+        sessionKey: "agent:main:case2",
+        sessionId: "session-case2",
+        resetTriggered: false,
+      });
+      operation.setPhase("running");
+
+      operation.abortForRestart();
+
+      expect(operation.result).toEqual({ kind: "aborted", code: "aborted_for_restart" });
+      expect(replyRunRegistry.isActive("agent:main:case2")).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(REPLY_RUN_TERMINAL_SETTLE_TIMEOUT_MS - 1);
+      expect(replyRunRegistry.isActive("agent:main:case2")).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(replyRunRegistry.isActive("agent:main:case2")).toBe(false);
+    } finally {
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("CASE 3: upstream abort with hanging owner settles after timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const upstreamAbort = new AbortController();
+      const operation = createReplyOperation({
+        sessionKey: "agent:main:case3",
+        sessionId: "session-case3",
+        resetTriggered: false,
+        upstreamAbortSignal: upstreamAbort.signal,
+      });
+      operation.setPhase("running");
+
+      upstreamAbort.abort(new Error("caller cancelled"));
+
+      expect(operation.result).toEqual({ kind: "aborted", code: "aborted_by_user" });
+      expect(replyRunRegistry.isActive("agent:main:case3")).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(REPLY_RUN_TERMINAL_SETTLE_TIMEOUT_MS - 1);
+      expect(replyRunRegistry.isActive("agent:main:case3")).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(replyRunRegistry.isActive("agent:main:case3")).toBe(false);
+    } finally {
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("CASE 4: owner timely complete cancels terminal settle timer", async () => {
+    vi.useFakeTimers();
+    try {
+      const operation = createReplyOperation({
+        sessionKey: "agent:main:case4",
+        sessionId: "session-case4",
+        resetTriggered: false,
+      });
+      operation.setPhase("running");
+
+      operation.abortByUser();
+      expect(replyRunRegistry.isActive("agent:main:case4")).toBe(true);
+
+      // Owner completes before timer fires
+      await vi.advanceTimersByTimeAsync(20_000);
+      operation.complete();
+
+      expect(replyRunRegistry.isActive("agent:main:case4")).toBe(false);
+
+      // Advance past timeout — must NOT cause errors or second clear
+      await vi.advanceTimersByTimeAsync(REPLY_RUN_TERMINAL_SETTLE_TIMEOUT_MS);
+      expect(replyRunRegistry.isActive("agent:main:case4")).toBe(false);
+    } finally {
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("CASE 5: late complete after forced release is harmless", async () => {
+    vi.useFakeTimers();
+    try {
+      const operation = createReplyOperation({
+        sessionKey: "agent:main:case5",
+        sessionId: "session-case5",
+        resetTriggered: false,
+      });
+      operation.setPhase("running");
+
+      operation.abortByUser();
+
+      // Timer force-clears
+      await vi.advanceTimersByTimeAsync(REPLY_RUN_TERMINAL_SETTLE_TIMEOUT_MS);
+      expect(replyRunRegistry.isActive("agent:main:case5")).toBe(false);
+
+      // Late owner complete — must not throw or re-register
+      operation.complete();
+      expect(replyRunRegistry.isActive("agent:main:case5")).toBe(false);
+    } finally {
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("CASE 6: queued abort clears immediately without waiting for settle", () => {
+    const operation = createReplyOperation({
+      sessionKey: "agent:main:case6",
+      sessionId: "session-case6",
+      resetTriggered: false,
+    });
+    // Phase is still "queued"
+    operation.abortByUser();
+
+    expect(operation.result).toEqual({ kind: "aborted", code: "aborted_by_user" });
+    expect(replyRunRegistry.isActive("agent:main:case6")).toBe(false);
+  });
+
+  it("CASE 7: retained failure with hanging owner settles after timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const operation = createReplyOperation({
+        sessionKey: "agent:main:case7",
+        sessionId: "session-case7",
+        resetTriggered: false,
+      });
+      operation.retainFailureUntilComplete();
+      const afterClear = vi.fn();
+      runAfterReplyOperationClear(operation, afterClear);
+
+      operation.fail("run_failed", new Error("provider failed"));
+
+      expect(operation.result).toMatchObject({ kind: "failed", code: "run_failed" });
+      expect(replyRunRegistry.isActive("agent:main:case7")).toBe(true);
+      expect(afterClear).not.toHaveBeenCalled();
+
+      // Before timeout: still active
+      await vi.advanceTimersByTimeAsync(REPLY_RUN_TERMINAL_SETTLE_TIMEOUT_MS - 1);
+      expect(replyRunRegistry.isActive("agent:main:case7")).toBe(true);
+
+      // At timeout: force-settled
+      await vi.advanceTimersByTimeAsync(1);
+      expect(replyRunRegistry.isActive("agent:main:case7")).toBe(false);
+
+      // after-clear callback fires exactly once
+      await vi.waitFor(() => {
+        expect(afterClear).toHaveBeenCalledTimes(1);
+      });
+
+      const waitResult = await replyRunRegistry.waitForIdle("agent:main:case7", 100);
+      expect(waitResult).toBe(true);
+    } finally {
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("CASE 8: retainReplyOperationUntilComplete + fail + hanging owner settles", async () => {
+    vi.useFakeTimers();
+    try {
+      const operation = createReplyOperation({
+        sessionKey: "agent:main:case8",
+        sessionId: "session-case8",
+        resetTriggered: false,
+      });
+      retainReplyOperationUntilComplete(operation);
+      const afterClear = vi.fn();
+      runAfterReplyOperationClear(operation, afterClear);
+
+      operation.fail("run_failed", new Error("provider failed"));
+
+      expect(operation.result).toMatchObject({ kind: "failed", code: "run_failed" });
+      expect(replyRunRegistry.isActive("agent:main:case8")).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(REPLY_RUN_TERMINAL_SETTLE_TIMEOUT_MS - 1);
+      expect(replyRunRegistry.isActive("agent:main:case8")).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(replyRunRegistry.isActive("agent:main:case8")).toBe(false);
+      await vi.waitFor(() => {
+        expect(afterClear).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("CASE 9: old operation timer does not clear a newer operation", async () => {
+    vi.useFakeTimers();
+    try {
+      const first = createReplyOperation({
+        sessionKey: "agent:main:case9",
+        sessionId: "session-first",
+        resetTriggered: false,
+      });
+      first.setPhase("running");
+      first.abortByUser();
+      // Timer is now armed for `first`
+
+      // Owner of `first` completes, clearing state and cancelling its timer
+      first.complete();
+      expect(replyRunRegistry.isActive("agent:main:case9")).toBe(false);
+
+      // A new operation takes the same sessionKey
+      const second = createReplyOperation({
+        sessionKey: "agent:main:case9",
+        sessionId: "session-second",
+        resetTriggered: false,
+      });
+      second.setPhase("running");
+      expect(replyRunRegistry.isActive("agent:main:case9")).toBe(true);
+
+      // Advance past the original 60s — `second` must survive
+      await vi.advanceTimersByTimeAsync(REPLY_RUN_TERMINAL_SETTLE_TIMEOUT_MS + 5_000);
+      expect(replyRunRegistry.isActive("agent:main:case9")).toBe(true);
+
+      second.complete();
+      expect(replyRunRegistry.isActive("agent:main:case9")).toBe(false);
+    } finally {
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("CASE 10: repeated retained fail does not extend settle window", async () => {
+    vi.useFakeTimers();
+    try {
+      const operation = createReplyOperation({
+        sessionKey: "agent:main:case10",
+        sessionId: "session-case10",
+        resetTriggered: false,
+      });
+      operation.retainFailureUntilComplete();
+
+      // T=0: first fail starts the settle timer
+      operation.fail("run_failed", new Error("first failure"));
+      expect(operation.result).toMatchObject({ kind: "failed", code: "run_failed" });
+      expect(replyRunRegistry.isActive("agent:main:case10")).toBe(true);
+
+      // Advance 50s — still within the original 60s window
+      await vi.advanceTimersByTimeAsync(50_000);
+      expect(replyRunRegistry.isActive("agent:main:case10")).toBe(true);
+
+      // Second fail call — must NOT reset the timer
+      operation.fail("run_failed", new Error("second failure"));
+      expect(replyRunRegistry.isActive("agent:main:case10")).toBe(true);
+
+      // Advance 10s — total 60s from first fail → settle fires
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(replyRunRegistry.isActive("agent:main:case10")).toBe(false);
+    } finally {
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
+    }
+  });
+
+  it("CASE 11: scheduling after state cleared does not create effective timer", () => {
+    const operation = createReplyOperation({
+      sessionKey: "agent:main:case11",
+      sessionId: "session-case11",
+      resetTriggered: false,
+    });
+    operation.setPhase("running");
+
+    // Normal complete clears state
+    operation.complete();
+    expect(replyRunRegistry.isActive("agent:main:case11")).toBe(false);
+
+    // A late fail after state is cleared must not re-register the operation
+    operation.fail("run_failed", new Error("late failure"));
+    expect(replyRunRegistry.isActive("agent:main:case11")).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
-# OpenClaw responses-cache.6 配置汇总
+# OpenClaw responses-cache.7 候选配置汇总
 
-本文汇总个人定制版本 `v2026.7.1-2-responses-cache.6` 中与
+本文汇总个人定制版本 `v2026.7.1-2-responses-cache.7` 候选版本中与
 `openclaw.json` 有关的配置。它同时供运维人员和 OpenClaw 自身读取，目标是只修改
 指定模型，不覆盖已有 Provider、凭据、请求头或兼容设置。
 
@@ -16,6 +16,7 @@
 | Ark Responses 模型存在 1000 项硬限制 | `responsesMaxInputItems`、可选的 `responsesInputItemsSafetyMargin`                                        | 把 1000 复制给所有 Responses 模型                  |
 | Ark stale response ID 自动恢复       | 无                                                                                                        | 不需要新增重试或 full-rebuild 配置                 |
 | Overflow compaction 与摘要连续性修复 | 无                                                                                                        | 不需要配置内部重试计数或摘要锚点                   |
+| 长任务不设置整轮截止时间             | `agents.defaults.timeoutSeconds: 0`                                                                       | 不要关闭模型 Provider 的健康保护                   |
 
 所有功能都要求目标模型实际使用相应能力。不要仅根据模型名称或 Provider 名称推断
 API 能力；先确认服务端支持 Responses API、`previous_response_id` 或输入项目限制。
@@ -198,6 +199,35 @@ Provider 原生 ID。
 目标，但不得为了精确凑数拆开配对。即使安全边距配置为 0 或 1，运行时也会至少预留
 2 个历史项目位置，确保重新加入当前输入后不会立即再次触发同一阈值。
 
+## 长任务生命周期配置
+
+`.7` 没有新增字段，但修复了既有 `agents.defaults.timeoutSeconds: 0` 的语义。只有确实需要
+允许单次 Agent 任务长期运行时才设置：
+
+```json5
+{
+  agents: {
+    defaults: {
+      // 0 关闭整轮 Agent 的外层截止时间。
+      timeoutSeconds: 0,
+    },
+  },
+}
+```
+
+规则：
+
+- `0` 只关闭整轮 Agent 的外层运行截止时间，不表示所有网络等待都无限。
+- 云端模型的隐式首事件和流中空闲保护默认 120 秒。
+- vLLM、SGLang、LM Studio、Ollama、llama.cpp 等已识别自托管 Provider 默认使用
+  300 秒；使用 FQDN 不会降级成云端 120 秒。
+- 回环、私网或 `.local` 本地端点允许流中长时间静默，但创建请求和首事件仍受 300 秒
+  保护。
+- 需要调整单个 Provider 时，配置 `models.providers.<id>.timeoutSeconds`，不要为了一个
+  慢模型扩大所有 Agent 的运行上限。
+- Heartbeat 没有设置自己的 `timeoutSeconds` 时会继承全局 `0`；Heartbeat 专用字段仍应
+  使用正整数。
+
 ## 配置字段速查
 
 | 完整路径                                                                | 类型与默认值                     | 作用范围     | 说明                                            |
@@ -211,10 +241,11 @@ Provider 原生 ID。
 | `models.providers.*.responsesMaxInputItems`                             | 正整数；未设置                   | Provider     | Provider 下模型的默认输入项目上限               |
 | `models.providers.*.responsesInputItemsSafetyMargin`                    | 非负整数；有效上限存在时默认 150 | Provider     | Provider 下模型的默认安全边距                   |
 | `agents.defaults.compaction.maxInputItems`                              | 正整数；未设置                   | 全局兼容回退 | 旧配置入口，不建议新配置使用                    |
+| `agents.defaults.timeoutSeconds`                                        | 非负整数；默认 172800            | 全局         | `0` 关闭整轮 Agent 的外层截止时间               |
 
 ## 升级后自动生效的规则
 
-以下行为由 `.6` 源码实现，不需要写入 `openclaw.json`：
+以下行为由 `.6` 及 `.7` 候选源码实现，不需要写入 `openclaw.json`：
 
 - Ark 返回 `InvalidParameter.PreviousResponseNotFound` 时，准确识别 stale response
   ID，并且只执行一次不带旧 ID 的 full rebuild。
@@ -228,6 +259,9 @@ Provider 原生 ID。
 - overflow 恢复预算会在正常尝试后重置；已经持久化的当前用户消息不会被重复回放。
 - 严格校验 Provider、API、模型、base URL、Session、认证 Profile 和响应来源，避免
   跨模型、跨账号或跨会话错误复用响应 ID。
+- `.7` 在外层运行不限时的情况下仍保留 Provider 首事件和流中空闲健康保护。
+- `.7` 让未单独设置超时的 Heartbeat 正确继承全局 `timeoutSeconds: 0`。
+- `.7` 为终态 ReplyOperation 增加有界收尾清理，不需要公开配置。
 
 不要在配置中自行增加 `store`、`fullRebuild`、`overflowCompactionAttempts`、
 `compactionSummary` 或 stale ID 重试次数。这些不是本定制版公开的配置字段。
@@ -268,6 +302,7 @@ openclaw status
 
 ## 相关文档
 
+- [`.7` 长任务生命周期升级与验收说明](docs/providers/long-running-lifecycle-v2026.7.1-2-responses-cache.7.md)
 - [`.6` item-aware compaction 升级与验收说明](docs/providers/responses-item-aware-compaction-v2026.7.1-2-responses-cache.6.md)
 - [`.5` 升级与验收说明](docs/providers/ark-kimi-responses-v2026.7.1-2-responses-cache.5.md)
 - [Ark Kimi 原生工具调用 ID](docs/providers/ark-kimi-native-responses-tool-call-ids.md)

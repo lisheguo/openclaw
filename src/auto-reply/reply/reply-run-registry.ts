@@ -176,6 +176,9 @@ replyRunState.followupAdmissionBarriersByKey ??= new Map();
 
 export const REPLY_RUN_IDLE_SETTLE_TIMEOUT_MS = 15_000;
 
+/** Bounded settle window for terminal operations whose owner has not yet called complete(). */
+export const REPLY_RUN_TERMINAL_SETTLE_TIMEOUT_MS = 60_000;
+
 export class ReplyRunAlreadyActiveError extends Error {
   constructor(sessionKey: string) {
     super(`Reply run already active for ${sessionKey}`);
@@ -259,6 +262,7 @@ const afterClearCallbacksByOperation = new WeakMap<
   ReplyOperation,
   Set<(sessionId: string) => void>
 >();
+const terminalSettleTimersByOperation = new WeakMap<ReplyOperation, NodeJS.Timeout>();
 
 function getAttachedBackend(operation: ReplyOperation): ReplyBackendHandle | undefined {
   return attachedBackendByOperation.get(operation);
@@ -320,6 +324,14 @@ function flushReplyOperationAfterClear(operation: ReplyOperation, sessionId: str
   afterClearCallbacksByOperation.delete(operation);
   for (const callback of callbacks) {
     callback(sessionId);
+  }
+}
+
+function clearTerminalSettleTimer(operation: ReplyOperation): void {
+  const timer = terminalSettleTimersByOperation.get(operation);
+  if (timer) {
+    clearTimeout(timer);
+    terminalSettleTimersByOperation.delete(operation);
   }
 }
 
@@ -490,6 +502,7 @@ export function createReplyOperation(params: {
       return;
     }
     stateCleared = true;
+    clearTerminalSettleTimer(operation);
     detachUpstreamAbort();
     const registeredBarrier = afterClearBarrier
       ? registerFollowupAdmissionBarrier(
@@ -512,6 +525,22 @@ export function createReplyOperation(params: {
     void registeredBarrier.settled.then(() =>
       flushReplyOperationAfterClear(operation, registeredBarrier.sessionId),
     );
+  };
+
+  const scheduleTerminalSettle = () => {
+    if (stateCleared || terminalSettleTimersByOperation.has(operation)) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      terminalSettleTimersByOperation.delete(operation);
+      // Only force-clear if this operation is still the active owner — a later
+      // operation may have already taken the lane.
+      if (replyRunState.activeRunsByKey.get(sessionKey) === operation) {
+        clearState();
+      }
+    }, REPLY_RUN_TERMINAL_SETTLE_TIMEOUT_MS);
+    timer.unref?.();
+    terminalSettleTimersByOperation.set(operation, timer);
   };
 
   const abortInternally = (reason?: unknown) => {
@@ -659,6 +688,8 @@ export function createReplyOperation(params: {
       }
       if (!retainFailureUntilComplete && !retainStateUntilCompleteOperations.has(operation)) {
         clearState();
+      } else {
+        scheduleTerminalSettle();
       }
     },
     abortByUser() {
@@ -671,6 +702,8 @@ export function createReplyOperation(params: {
       });
       if (phaseBeforeAbort === "queued" && !retainStateUntilCompleteOperations.has(operation)) {
         clearState();
+      } else {
+        scheduleTerminalSettle();
       }
       return true;
     },
@@ -684,6 +717,8 @@ export function createReplyOperation(params: {
       });
       if (phaseBeforeAbort === "queued" && !retainStateUntilCompleteOperations.has(operation)) {
         clearState();
+      } else {
+        scheduleTerminalSettle();
       }
       return true;
     },
@@ -707,6 +742,8 @@ export function createReplyOperation(params: {
       });
       if (phaseBeforeAbort === "queued" && !retainStateUntilCompleteOperations.has(operation)) {
         clearState();
+      } else {
+        scheduleTerminalSettle();
       }
     };
     if (upstreamAbortSignal.aborted) {
@@ -988,6 +1025,9 @@ export const testing = {
   resetReplyRunRegistry(): void {
     for (const [sessionKey, sessionId] of replyRunState.activeSessionIdsByKey) {
       markReplyRunDiagnosticWorkEnded({ sessionKey, sessionId });
+    }
+    for (const operation of replyRunState.activeRunsByKey.values()) {
+      clearTerminalSettleTimer(operation);
     }
     replyRunState.activeRunsByKey.clear();
     replyRunState.activeSessionIdsByKey.clear();

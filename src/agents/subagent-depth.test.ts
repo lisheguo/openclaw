@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { MAX_TIMER_TIMEOUT_MS } from "@openclaw/normalization-core/number-coercion";
 import { describe, expect, it } from "vitest";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { getSubagentDepthFromSessionStore } from "./subagent-depth.js";
 import { resolveAgentTimeoutMs } from "./timeout.js";
 
@@ -154,5 +155,17 @@ describe("resolveAgentTimeoutMs", () => {
   it("clamps very large timeout overrides to timer-safe values", () => {
     expect(resolveAgentTimeoutMs({ overrideSeconds: 9_999_999 })).toBe(MAX_TIMER_TIMEOUT_MS);
     expect(resolveAgentTimeoutMs({ overrideMs: 9_999_999_999 })).toBe(MAX_TIMER_TIMEOUT_MS);
+  });
+
+  it("resolves positive config timeoutSeconds to milliseconds", () => {
+    const cfg900 = { agents: { defaults: { timeoutSeconds: 900 } } } as OpenClawConfig;
+    expect(resolveAgentTimeoutMs({ cfg: cfg900 })).toBe(900_000);
+    const cfg3600 = { agents: { defaults: { timeoutSeconds: 3600 } } } as OpenClawConfig;
+    expect(resolveAgentTimeoutMs({ cfg: cfg3600 })).toBe(3_600_000);
+  });
+
+  it("resolves timeoutSeconds=0 to the unlimited timer-safe sentinel", () => {
+    const cfg = { agents: { defaults: { timeoutSeconds: 0 } } } as OpenClawConfig;
+    expect(resolveAgentTimeoutMs({ cfg })).toBe(MAX_TIMER_TIMEOUT_MS);
   });
 });

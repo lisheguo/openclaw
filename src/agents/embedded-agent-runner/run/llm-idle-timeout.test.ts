@@ -16,6 +16,7 @@ import {
 } from "./llm-idle-timeout.js";
 
 const DEFAULT_LLM_IDLE_TIMEOUT_MS = 120_000;
+const SELF_HOSTED_LLM_IDLE_TIMEOUT_MS = 300_000;
 const CRON_LLM_IDLE_TIMEOUT_MS = 60_000;
 const CLOUD_LLM_FIRST_EVENT_TIMEOUT_MS = DEFAULT_LLM_IDLE_TIMEOUT_MS;
 const LOCAL_LLM_FIRST_EVENT_TIMEOUT_MS = 300_000;
@@ -197,8 +198,104 @@ describe("resolveLlmIdleTimeoutMs", () => {
     ).toBe(CRON_LLM_IDLE_TIMEOUT_MS);
   });
 
-  it("disables the idle watchdog when an explicit run timeout disables timeouts", () => {
-    expect(resolveLlmIdleTimeoutMs({ runTimeoutMs: MAX_TIMER_TIMEOUT_MS })).toBe(0);
+  it("keeps the finite cloud idle watchdog when an explicit run timeout is unlimited", () => {
+    expect(resolveLlmIdleTimeoutMs({ runTimeoutMs: MAX_TIMER_TIMEOUT_MS })).toBe(
+      DEFAULT_LLM_IDLE_TIMEOUT_MS,
+    );
+  });
+
+  it("keeps the finite self-hosted idle watchdog when the run timeout is unlimited", () => {
+    expect(
+      resolveLlmIdleTimeoutMs({
+        runTimeoutMs: MAX_TIMER_TIMEOUT_MS,
+        model: { provider: "vllm", baseUrl: "http://gpu-box:8000/v1" },
+      }),
+    ).toBe(SELF_HOSTED_LLM_IDLE_TIMEOUT_MS);
+  });
+
+  it("keeps local providers opted out of the idle watchdog under an unlimited run", () => {
+    expect(
+      resolveLlmIdleTimeoutMs({
+        runTimeoutMs: MAX_TIMER_TIMEOUT_MS,
+        model: { baseUrl: "http://127.0.0.1:11434" },
+      }),
+    ).toBe(0);
+  });
+
+  it("bounds a finite run timeout by the self-hosted idle watchdog", () => {
+    expect(
+      resolveLlmIdleTimeoutMs({
+        runTimeoutMs: 90_000,
+        model: { provider: "vllm", baseUrl: "http://gpu-box:8000/v1" },
+      }),
+    ).toBe(90_000);
+  });
+
+  it("keeps the cloud idle watchdog for a large finite cloud run", () => {
+    expect(resolveLlmIdleTimeoutMs({ runTimeoutMs: 3_600_000 })).toBe(DEFAULT_LLM_IDLE_TIMEOUT_MS);
+  });
+
+  it("keeps the self-hosted idle watchdog for a large finite self-hosted run", () => {
+    expect(
+      resolveLlmIdleTimeoutMs({
+        runTimeoutMs: 3_600_000,
+        model: { provider: "sglang", baseUrl: "http://sglang-rig:30000/v1" },
+      }),
+    ).toBe(SELF_HOSTED_LLM_IDLE_TIMEOUT_MS);
+  });
+
+  it("recognizes self-hosted provider-id with FQDN baseUrl as self-hosted (vllm)", () => {
+    expect(
+      resolveLlmIdleTimeoutMs({
+        runTimeoutMs: MAX_TIMER_TIMEOUT_MS,
+        model: { provider: "vllm", baseUrl: "https://gpu.example.com/v1" },
+      }),
+    ).toBe(SELF_HOSTED_LLM_IDLE_TIMEOUT_MS);
+  });
+
+  it("recognizes self-hosted provider-id with FQDN baseUrl as self-hosted (sglang-rig)", () => {
+    expect(
+      resolveLlmIdleTimeoutMs({
+        runTimeoutMs: MAX_TIMER_TIMEOUT_MS,
+        model: { provider: "sglang-rig", baseUrl: "https://llm.example.net/v1" },
+      }),
+    ).toBe(SELF_HOSTED_LLM_IDLE_TIMEOUT_MS);
+  });
+
+  it("recognizes self-hosted provider-id with FQDN baseUrl as self-hosted (lmstudio)", () => {
+    expect(
+      resolveLlmIdleTimeoutMs({
+        runTimeoutMs: MAX_TIMER_TIMEOUT_MS,
+        model: { provider: "lmstudio", baseUrl: "http://llm.example.net/v1" },
+      }),
+    ).toBe(SELF_HOSTED_LLM_IDLE_TIMEOUT_MS);
+  });
+
+  it("keeps cloud idle for non-self-hosted provider with FQDN baseUrl", () => {
+    expect(
+      resolveLlmIdleTimeoutMs({
+        runTimeoutMs: MAX_TIMER_TIMEOUT_MS,
+        model: { provider: "openai", baseUrl: "https://api.example.com/v1" },
+      }),
+    ).toBe(DEFAULT_LLM_IDLE_TIMEOUT_MS);
+  });
+
+  it("does not classify ollama-cloud as self-hosted despite ollama provider prefix", () => {
+    expect(
+      resolveLlmIdleTimeoutMs({
+        runTimeoutMs: MAX_TIMER_TIMEOUT_MS,
+        model: { id: "llama3:cloud", provider: "ollama", baseUrl: "http://127.0.0.1:11434" },
+      }),
+    ).toBe(DEFAULT_LLM_IDLE_TIMEOUT_MS);
+  });
+
+  it("bounds idle by finite run timeout for self-hosted provider with FQDN", () => {
+    expect(
+      resolveLlmIdleTimeoutMs({
+        runTimeoutMs: 90_000,
+        model: { provider: "vllm", baseUrl: "https://gpu.example.com/v1" },
+      }),
+    ).toBe(90_000);
   });
 
   it("honors an explicit models.providers.<id>.timeoutSeconds for cloud providers (#77744, #78361)", () => {
@@ -473,6 +570,34 @@ describe("resolveLlmFirstEventTimeoutMs", () => {
         model: { provider: "vllm", baseUrl: "http://gpu-box:8000/v1" },
       }),
     ).toBe(LOCAL_LLM_FIRST_EVENT_TIMEOUT_MS);
+  });
+
+  it.each(["vllm", "sglang-rig", "lmstudio"])(
+    "uses the self-hosted first-event timeout for %s behind an FQDN",
+    (provider) => {
+      expect(
+        resolveLlmFirstEventTimeoutMs({
+          model: { provider, baseUrl: "https://gpu.example.com/v1" },
+        }),
+      ).toBe(LOCAL_LLM_FIRST_EVENT_TIMEOUT_MS);
+    },
+  );
+
+  it("keeps non-self-hosted FQDN providers on the cloud first-event timeout", () => {
+    expect(
+      resolveLlmFirstEventTimeoutMs({
+        model: { provider: "openai", baseUrl: "https://api.example.com/v1" },
+      }),
+    ).toBe(CLOUD_LLM_FIRST_EVENT_TIMEOUT_MS);
+  });
+
+  it("caps a self-hosted FQDN first-event timeout by a finite run timeout", () => {
+    expect(
+      resolveLlmFirstEventTimeoutMs({
+        model: { provider: "vllm", baseUrl: "https://gpu.example.com/v1" },
+        runTimeoutMs: 90_000,
+      }),
+    ).toBe(90_000);
   });
 
   it("keeps Ollama cloud models on the cloud first-event timeout", () => {
@@ -795,6 +920,50 @@ describe("streamWithIdleTimeout", () => {
     const [timeoutError] = onIdleTimeout.mock.calls.at(0) ?? [];
     expect(timeoutError).toBeInstanceOf(Error);
     expect((timeoutError as Error).message).toMatch(/LLM idle timeout/);
+  });
+
+  it("creation-only: rejects when stream creation never resolves", async () => {
+    vi.useFakeTimers();
+    const baseFn = vi.fn(() => new Promise<AssistantMessageEventStream>(() => {}));
+    const onIdleTimeout = vi.fn();
+    const wrapped = streamWithIdleTimeout(baseFn, 50, onIdleTimeout, "creation-only");
+
+    const model = {} as Parameters<typeof baseFn>[0];
+    const context = {} as Parameters<typeof baseFn>[1];
+    const options = {} as Parameters<typeof baseFn>[2];
+
+    const stream = expect(wrapped(model, context, options)).rejects.toThrow(/LLM idle timeout/);
+    await vi.advanceTimersByTimeAsync(50);
+    await stream;
+    expect(onIdleTimeout).toHaveBeenCalledTimes(1);
+  });
+
+  it("creation-only: does not abort a pending iterator gap after stream creation", async () => {
+    vi.useFakeTimers();
+    const baseFn = vi.fn().mockReturnValue(createNeverYieldingStream());
+    const onIdleTimeout = vi.fn();
+    const wrapped = streamWithIdleTimeout(baseFn, 50, onIdleTimeout, "creation-only");
+
+    const model = {} as Parameters<typeof baseFn>[0];
+    const context = {} as Parameters<typeof baseFn>[1];
+    const options = {} as Parameters<typeof baseFn>[2];
+
+    const stream = wrapped(model, context, options) as AsyncIterable<unknown>;
+    const iterator = stream[Symbol.asyncIterator]();
+
+    let settled = false;
+    void iterator.next().then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(settled).toBe(false);
+    expect(onIdleTimeout).not.toHaveBeenCalled();
   });
 });
 

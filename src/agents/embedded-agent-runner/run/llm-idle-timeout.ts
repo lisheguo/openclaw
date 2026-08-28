@@ -18,6 +18,7 @@ import type { EmbeddedRunTrigger } from "./params.js";
  * Default idle timeout for LLM streaming responses in milliseconds.
  */
 const DEFAULT_LLM_IDLE_TIMEOUT_MS = 120_000;
+const SELF_HOSTED_LLM_IDLE_TIMEOUT_MS = 300_000;
 const CLOUD_LLM_FIRST_EVENT_TIMEOUT_MS = DEFAULT_LLM_IDLE_TIMEOUT_MS;
 const LOCAL_LLM_FIRST_EVENT_TIMEOUT_MS = 300_000;
 // Cron has its own outer watchdog; stream stalls must fail early enough for
@@ -201,7 +202,7 @@ function isOllamaCloudModel(model: { id?: string; provider?: string } | undefine
 type RuntimeModelLocality = {
   isLocalRuntimeModel: boolean;
   isExplicitLocalHostnameRuntimeModel: boolean;
-  isSelfHostedHostnameRuntimeModel: boolean;
+  isSelfHostedRuntimeModel: boolean;
 };
 
 /**
@@ -213,25 +214,26 @@ function resolveRuntimeModelLocality(params?: {
   model?: { baseUrl?: string; id?: string; provider?: string };
 }): RuntimeModelLocality {
   const baseUrl = params?.model?.baseUrl;
-  if (typeof baseUrl !== "string" || baseUrl.length === 0) {
-    return {
-      isLocalRuntimeModel: false,
-      isExplicitLocalHostnameRuntimeModel: false,
-      isSelfHostedHostnameRuntimeModel: false,
-    };
-  }
   const notCloudModel = !isOllamaCloudModel(params?.model);
+  const hasBaseUrl = typeof baseUrl === "string" && baseUrl.length > 0;
+  const providerIdentifiesSelfHosted = isSelfHostedProviderId(params?.model?.provider);
+  const hostnameIdentifiesSelfHosted =
+    hasBaseUrl &&
+    isBareProviderHostnameBaseUrl(baseUrl) &&
+    (providerIdentifiesSelfHosted ||
+      hasConfiguredLocalProviderSignal({
+        cfg: params?.cfg,
+        provider: params?.model?.provider,
+      }));
   return {
-    isLocalRuntimeModel: isLocalProviderBaseUrl(baseUrl) && notCloudModel,
-    isExplicitLocalHostnameRuntimeModel: isExplicitLocalHostnameBaseUrl(baseUrl) && notCloudModel,
-    isSelfHostedHostnameRuntimeModel:
-      isBareProviderHostnameBaseUrl(baseUrl) &&
-      (isSelfHostedProviderId(params?.model?.provider) ||
-        hasConfiguredLocalProviderSignal({
-          cfg: params?.cfg,
-          provider: params?.model?.provider,
-        })) &&
-      notCloudModel,
+    isLocalRuntimeModel: hasBaseUrl && isLocalProviderBaseUrl(baseUrl) && notCloudModel,
+    isExplicitLocalHostnameRuntimeModel:
+      hasBaseUrl && isExplicitLocalHostnameBaseUrl(baseUrl) && notCloudModel,
+    // Provider identity is the authoritative self-hosted signal even when the
+    // endpoint uses an FQDN. Share it across both watchdogs so first-event and
+    // mid-stream classification cannot drift.
+    isSelfHostedRuntimeModel:
+      (providerIdentifiesSelfHosted || hostnameIdentifiesSelfHosted) && notCloudModel,
   };
 }
 
@@ -248,8 +250,28 @@ export function resolveLlmIdleTimeoutMs(params?: {
   model?: { baseUrl?: string; id?: string; provider?: string };
 }): number {
   const clampTimeoutMs = (valueMs: number) => clampTimerTimeoutMs(valueMs) ?? 1;
+  const { isLocalRuntimeModel, isExplicitLocalHostnameRuntimeModel, isSelfHostedRuntimeModel } =
+    resolveRuntimeModelLocality(params);
+  const isLocal = isLocalRuntimeModel;
+  const isSelfHosted = isSelfHostedRuntimeModel;
+  const isLocalOrSelfHosted =
+    isLocalRuntimeModel || isExplicitLocalHostnameRuntimeModel || isSelfHosted;
+  // Locality-aware implicit watchdog default: local providers stay opted out
+  // (0), self-hosted endpoints get the longer 5m guard, and cloud providers
+  // keep the default 2m network-silence guard.
+  const implicitIdleTimeoutMs = isLocal
+    ? 0
+    : isSelfHosted
+      ? SELF_HOSTED_LLM_IDLE_TIMEOUT_MS
+      : DEFAULT_LLM_IDLE_TIMEOUT_MS;
+  // Explicit finite run/agent timeouts still cap the watchdog. Local providers
+  // keep the historical cloud cap (their opt-out only disables the implicit
+  // default), while self-hosted endpoints get the longer 5m cap.
+  const implicitIdleCapMs = isSelfHosted
+    ? SELF_HOSTED_LLM_IDLE_TIMEOUT_MS
+    : DEFAULT_LLM_IDLE_TIMEOUT_MS;
   const clampImplicitTimeoutMs = (valueMs: number) =>
-    clampTimeoutMs(Math.min(valueMs, DEFAULT_LLM_IDLE_TIMEOUT_MS));
+    clampTimeoutMs(Math.min(valueMs, implicitIdleCapMs));
 
   const runTimeoutMs = params?.runTimeoutMs;
   const agentTimeoutSeconds = params?.cfg?.agents?.defaults?.timeoutSeconds;
@@ -257,11 +279,6 @@ export function resolveLlmIdleTimeoutMs(params?: {
   const hasExplicitRunTimeout =
     typeof runTimeoutMs === "number" && Number.isFinite(runTimeoutMs) && runTimeoutMs > 0;
   const runTimeoutIsNoTimeout = hasExplicitRunTimeout && runTimeoutMs >= MAX_TIMER_TIMEOUT_MS;
-  const {
-    isLocalRuntimeModel,
-    isExplicitLocalHostnameRuntimeModel,
-    isSelfHostedHostnameRuntimeModel,
-  } = resolveRuntimeModelLocality(params);
   const timeoutBounds = [
     runTimeoutIsNoTimeout ? undefined : runTimeoutMs,
     hasExplicitRunTimeout ? undefined : agentTimeoutMs,
@@ -299,14 +316,13 @@ export function resolveLlmIdleTimeoutMs(params?: {
 
   if (typeof runTimeoutMs === "number" && Number.isFinite(runTimeoutMs) && runTimeoutMs > 0) {
     if (runTimeoutMs >= MAX_TIMER_TIMEOUT_MS) {
-      return 0;
+      // An unlimited run budget keeps the locality-aware watchdog: cloud and
+      // self-hosted providers retain a finite idle guard, only local providers
+      // stay opted out.
+      return implicitIdleTimeoutMs;
     }
     if (params?.trigger === "cron") {
-      if (
-        isLocalRuntimeModel ||
-        isExplicitLocalHostnameRuntimeModel ||
-        isSelfHostedHostnameRuntimeModel
-      ) {
+      if (isLocalOrSelfHosted) {
         return clampTimeoutMs(runTimeoutMs);
       }
       return clampTimeoutMs(Math.min(runTimeoutMs, CRON_LLM_IDLE_TIMEOUT_MS));
@@ -325,11 +341,7 @@ export function resolveLlmIdleTimeoutMs(params?: {
   // baseUrl pointing at loopback / private-network / `.local`. Ollama cloud
   // models are still hosted remotely even when proxied through local Ollama, so
   // keep the cloud watchdog for `*:cloud` model ids.
-  if (isLocalRuntimeModel) {
-    return 0;
-  }
-
-  return DEFAULT_LLM_IDLE_TIMEOUT_MS;
+  return implicitIdleTimeoutMs;
 }
 
 export function resolveLlmFirstEventTimeoutMs(params?: {
@@ -346,11 +358,8 @@ export function resolveLlmFirstEventTimeoutMs(params?: {
   const hasExplicitRunTimeout =
     typeof runTimeoutMs === "number" && Number.isFinite(runTimeoutMs) && runTimeoutMs > 0;
   const runTimeoutIsBounded = hasExplicitRunTimeout && runTimeoutMs < MAX_TIMER_TIMEOUT_MS;
-  const {
-    isLocalRuntimeModel,
-    isExplicitLocalHostnameRuntimeModel,
-    isSelfHostedHostnameRuntimeModel,
-  } = resolveRuntimeModelLocality(params);
+  const { isLocalRuntimeModel, isExplicitLocalHostnameRuntimeModel, isSelfHostedRuntimeModel } =
+    resolveRuntimeModelLocality(params);
   const timeoutBounds = [
     runTimeoutIsBounded ? runTimeoutMs : undefined,
     hasExplicitRunTimeout ? undefined : agentTimeoutMs,
@@ -372,7 +381,7 @@ export function resolveLlmFirstEventTimeoutMs(params?: {
   }
 
   const defaultTimeoutMs =
-    isLocalRuntimeModel || isExplicitLocalHostnameRuntimeModel || isSelfHostedHostnameRuntimeModel
+    isLocalRuntimeModel || isExplicitLocalHostnameRuntimeModel || isSelfHostedRuntimeModel
       ? LOCAL_LLM_FIRST_EVENT_TIMEOUT_MS
       : CLOUD_LLM_FIRST_EVENT_TIMEOUT_MS;
   return clampTimeoutMs(Math.min(defaultTimeoutMs, ...timeoutBounds));
@@ -387,6 +396,7 @@ export function streamWithIdleTimeout(
   baseFn: StreamFn,
   timeoutMs: number,
   onIdleTimeout?: (error: Error) => void,
+  scope: "full" | "creation-only" = "full",
 ): StreamFn {
   return (model, context, options) => {
     const createIdleTimeoutError = () =>
@@ -479,6 +489,15 @@ export function streamWithIdleTimeout(
           return createStreamIteratorWrapper({
             iterator,
             next: async (streamIterator) => {
+              if (scope === "creation-only") {
+                // Creation-only scope: the watchdog only guards stream
+                // creation, so iterator gaps are passed through untouched.
+                const result = await streamIterator.next();
+                if (result.done) {
+                  cleanupIterator();
+                }
+                return result;
+              }
               waitingForProvider = true;
               try {
                 const timeoutPromise = new Promise<never>((_, reject) => {

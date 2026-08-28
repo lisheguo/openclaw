@@ -3253,13 +3253,6 @@ export async function runEmbeddedAttempt(
           provider: params.provider,
         },
       });
-      if (idleTimeoutMs > 0) {
-        activeSession.agent.streamFn = streamWithIdleTimeout(
-          activeSession.agent.streamFn,
-          idleTimeoutMs,
-          (error) => idleTimeoutTrigger?.(error),
-        );
-      }
       const firstEventTimeoutMs = resolveLlmFirstEventTimeoutMs({
         cfg: params.config,
         runTimeoutMs: resolvedRunTimeoutMs,
@@ -3270,6 +3263,23 @@ export async function runEmbeddedAttempt(
           provider: params.provider,
         },
       });
+      if (idleTimeoutMs > 0) {
+        activeSession.agent.streamFn = streamWithIdleTimeout(
+          activeSession.agent.streamFn,
+          idleTimeoutMs,
+          (error) => idleTimeoutTrigger?.(error),
+        );
+      } else if (firstEventTimeoutMs > 0) {
+        // Local providers opt out of the implicit mid-stream idle watchdog, but
+        // the stream creation phase must still be bounded so a provider that
+        // never returns headers cannot wedge an unlimited run.
+        activeSession.agent.streamFn = streamWithIdleTimeout(
+          activeSession.agent.streamFn,
+          firstEventTimeoutMs,
+          (error) => idleTimeoutTrigger?.(error),
+          "creation-only",
+        );
+      }
       if (firstEventTimeoutMs > 0) {
         const baseStreamFn = activeSession.agent.streamFn;
         activeSession.agent.streamFn = (model, context, options) => {

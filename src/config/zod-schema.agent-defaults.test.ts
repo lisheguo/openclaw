@@ -481,4 +481,17 @@ describe("agent defaults schema", () => {
     );
     expectSchemaFailurePath(AgentDefaultsSchema.safeParse({ contextTokens: 0 }), "contextTokens");
   });
+
+  it("accepts timeoutSeconds=0 as unlimited and rejects negative/fractional values", () => {
+    expectSchemaSuccess(AgentDefaultsSchema.safeParse({ timeoutSeconds: 0 }));
+    expectSchemaSuccess(AgentDefaultsSchema.safeParse({ timeoutSeconds: 600 }));
+    expectSchemaFailurePath(
+      AgentDefaultsSchema.safeParse({ timeoutSeconds: -1 }),
+      "timeoutSeconds",
+    );
+    expectSchemaFailurePath(
+      AgentDefaultsSchema.safeParse({ timeoutSeconds: 1.5 }),
+      "timeoutSeconds",
+    );
+  });
 });

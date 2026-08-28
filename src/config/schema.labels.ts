@@ -729,6 +729,7 @@ export const FIELD_LABELS: Record<string, string> = {
     "Compaction Memory Flush Transcript Size Threshold",
   "agents.defaults.compaction.memoryFlush.prompt": "Compaction Memory Flush Prompt",
   "agents.defaults.compaction.memoryFlush.systemPrompt": "Compaction Memory Flush System Prompt",
+  "agents.defaults.timeoutSeconds": "Agent Run Timeout (Seconds)",
   "agents.defaults.runRetries": "Run Retries",
   "agents.defaults.runRetries.base": "Run Retries Base",
   "agents.defaults.runRetries.perProfile": "Run Retries Per Profile",

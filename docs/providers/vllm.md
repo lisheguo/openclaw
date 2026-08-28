@@ -299,7 +299,7 @@ To keep the provider dynamic without listing every model, add a wildcard to the 
     }
     ```
 
-    `timeoutSeconds` applies to vLLM model HTTP requests only: connection setup, response headers, body streaming, and the total guarded-fetch abort. It also raises the LLM idle/stream watchdog ceiling above the implicit ~120s default for this provider. Prefer this over increasing `agents.defaults.timeoutSeconds`, which controls the whole agent run.
+    `timeoutSeconds` applies to vLLM model HTTP requests only: connection setup, response headers, body streaming, and the total guarded-fetch abort. vLLM is classified as self-hosted, so its implicit first-event and stream-idle window is 300 seconds even when `baseUrl` uses an FQDN. Loopback/private endpoints still opt out of the implicit mid-stream idle watchdog, while stream creation remains bounded at 300 seconds. Set `timeoutSeconds` when the server needs a different explicit ceiling. Prefer this over increasing `agents.defaults.timeoutSeconds`, which controls the whole agent run.
 
   </Accordion>
 

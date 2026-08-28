@@ -1,13 +1,24 @@
-# OpenClaw v2026.7.1-2-responses-cache.6 开发版
+# OpenClaw v2026.7.1-2-responses-cache.7 发布候选
 
 > 本分支基于 OpenClaw 官方 v2026.7.1-2，是个人定制版本，并非 OpenClaw 官方发行版。
-> 发布版本：`v2026.7.1-2-responses-cache.6`
-> 开发分支：`ark-custom-2026.7.1-2-responses-cache.6`
+> 当前已发布稳定基线：`v2026.7.1-2-responses-cache.6`
+> 候选目标：`v2026.7.1-2-responses-cache.7`（尚未创建分支或 Tag）
 > 运行时版本：`2026.7.1`（沿用官方 correction build 的包版本；定制身份以分支、Tag 和 Commit 标识）
 
-[下载 .6 Tag ZIP](https://github.com/lisheguo/openclaw/archive/refs/tags/v2026.7.1-2-responses-cache.6.zip) · [查看 .6 Tag](https://github.com/lisheguo/openclaw/tree/v2026.7.1-2-responses-cache.6) · [.6 升级与验收说明](docs/providers/responses-item-aware-compaction-v2026.7.1-2-responses-cache.6.md) · [openclaw.json 中文配置汇总](OPENCLAW_JSON_CUSTOM_CONFIG.zh-CN.md) · [.5 升级与验收说明](docs/providers/ark-kimi-responses-v2026.7.1-2-responses-cache.5.md) · [Kimi 原生工具 ID 配置说明](docs/providers/ark-kimi-native-responses-tool-call-ids.md) · [Ark .4 修复与升级测试说明](docs/providers/ark-responses-stale-response-id-v2026.7.1-2-responses-cache.4.md) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
+[.7 候选升级与验收说明](docs/providers/long-running-lifecycle-v2026.7.1-2-responses-cache.7.md) · [下载 .6 Tag ZIP](https://github.com/lisheguo/openclaw/archive/refs/tags/v2026.7.1-2-responses-cache.6.zip) · [查看 .6 Tag](https://github.com/lisheguo/openclaw/tree/v2026.7.1-2-responses-cache.6) · [.6 升级与验收说明](docs/providers/responses-item-aware-compaction-v2026.7.1-2-responses-cache.6.md) · [openclaw.json 中文配置汇总](OPENCLAW_JSON_CUSTOM_CONFIG.zh-CN.md) · [.5 升级与验收说明](docs/providers/ark-kimi-responses-v2026.7.1-2-responses-cache.5.md) · [Kimi 原生工具 ID 配置说明](docs/providers/ark-kimi-native-responses-tool-call-ids.md) · [Ark .4 修复与升级测试说明](docs/providers/ark-responses-stale-response-id-v2026.7.1-2-responses-cache.4.md) · [DashScope 配置说明](docs/providers/dashscope-responses-session-cache.md)
 
 ## 这个定制版增加了什么
+
+### `.7` Long-running lifecycle 可靠性修复
+
+- `agents.defaults.timeoutSeconds: 0` 现在表示关闭整轮 Agent 的外层截止时间，不再被错误压成 1 秒。
+- 关闭外层截止时间不会关闭模型健康保护：云端首事件/流中空闲默认 120 秒，自托管 Provider 默认 300 秒，本地端点仍保留 300 秒首事件保护。
+- vLLM、SGLang、LM Studio 等自托管 Provider 即使使用 FQDN，也会在首事件和流中空闲两条路径得到一致的 300 秒分类。
+- 未单独设置 Heartbeat 超时时，会正确继承全局 `0`；不会再把长任务 Heartbeat 变成 1 秒超时。
+- 终态 ReplyOperation 增加 60 秒有界收尾保护，避免所有者未完成清理时永久占用会话 lane。
+- 补齐根依赖 `node-llama-cpp@3.18.1` 的 pnpm lockfile 记录，恢复 frozen-lockfile 安装一致性。
+
+完整行为、配置、测试和发布检查见 [.7 候选升级与验收说明](docs/providers/long-running-lifecycle-v2026.7.1-2-responses-cache.7.md)。
 
 ### 1. Item-aware compaction 修复
 

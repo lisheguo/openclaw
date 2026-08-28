@@ -6,6 +6,7 @@
 import {
   clampTimerTimeoutMs,
   MAX_TIMER_TIMEOUT_MS,
+  MAX_TIMER_TIMEOUT_SECONDS,
 } from "@openclaw/normalization-core/number-coercion";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 
@@ -17,8 +18,15 @@ const normalizeNumber = (value: unknown): number | undefined =>
 
 function resolveAgentTimeoutSeconds(cfg?: OpenClawConfig): number {
   const raw = normalizeNumber(cfg?.agents?.defaults?.timeoutSeconds);
-  const seconds = raw ?? DEFAULT_AGENT_TIMEOUT_SECONDS;
-  return Math.max(seconds, 1);
+  if (raw === undefined) {
+    return DEFAULT_AGENT_TIMEOUT_SECONDS;
+  }
+  if (raw === 0) {
+    // `timeoutSeconds: 0` means "no timeout": resolve to the timer-safe
+    // unlimited sentinel (in whole seconds) instead of clamping to 1s.
+    return MAX_TIMER_TIMEOUT_SECONDS;
+  }
+  return Math.max(raw, 1);
 }
 
 export function resolveAgentTimeoutMs(opts: {
