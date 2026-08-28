@@ -7312,7 +7312,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H1: Upgrade and validate Ark Kimi Responses cache .5
   - H2: Before you begin
   - H2: Upgrade from .4
-  - H2: Configure only the Ark Kimi model
+  - H2: Configure the affected Ark model
   - H2: Run source regression tests
   - H2: Validate Ark Kimi end to end
   - H3: Round 1: establish the chain
@@ -7320,6 +7320,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H3: Round 3: restart and replay
   - H3: Round 4: run the control model
   - H2: Validate overflow compaction
+  - H2: Validate input-item protection and summary continuity
   - H2: Check retained .4 behavior
   - H2: Acceptance record
   - H2: Roll back
@@ -7463,6 +7464,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Optional Responses item-limit protection
   - H2: Verification checklist
   - H2: Rollback
+  - H2: See also
 
 ## providers/deepgram.md
 
@@ -7692,6 +7694,22 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H3: LM Studio not detected
   - H3: Authentication errors (HTTP 401)
   - H2: Related
+
+## providers/long-running-lifecycle-v2026.7.1-2-responses-cache.7.md
+
+- Route: /providers/long-running-lifecycle-v2026.7.1-2-responses-cache.7
+- Headings:
+  - H1: responses-cache.7 长任务生命周期升级与验收
+  - H2: 本次发布修复
+  - H2: 配置
+  - H2: 升级前检查
+  - H2: 源码验收
+  - H2: 生产环境冒烟
+  - H2: 已完成验收
+  - H2: 已知非阻断项
+  - H2: 发布检查
+  - H2: 回滚
+  - H2: 相关文档
 
 ## providers/longcat.md
 
@@ -7941,6 +7959,19 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Multimodal add-ons
   - H2: Advanced configuration
   - H2: Related
+
+## providers/responses-item-aware-compaction-v2026.7.1-2-responses-cache.6.md
+
+- Route: /providers/responses-item-aware-compaction-v2026.7.1-2-responses-cache.6
+- Headings:
+  - H1: Upgrade and validate Responses item-aware compaction .6
+  - H2: Release identity
+  - H2: Behavior
+  - H2: Upgrade from .5
+  - H2: Focused source validation
+  - H2: Production-parameter acceptance
+  - H2: Rollback
+  - H2: See also
 
 ## providers/runway.md
 
