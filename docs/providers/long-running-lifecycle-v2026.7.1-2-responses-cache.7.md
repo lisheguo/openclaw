@@ -14,12 +14,12 @@ title: "responses-cache.7 长任务生命周期升级与验收"
 
 ## 本次发布修复
 
-| 任务                | 修复                                                 | 预期结果                                                      |
-| ------------------- | ---------------------------------------------------- | ------------------------------------------------------------- |
-| `TEST-20260828-001` | 自托管首事件分类与流中空闲分类共用同一 locality 事实 | vLLM、SGLang、LM Studio 等使用 FQDN 时仍采用 300 秒首事件保护 |
-| `TEST-20260828-002` | Heartbeat 原样继承全局 `timeoutSeconds: 0`           | 不再被错误转换为 1 秒                                         |
-| `TEST-20260828-003` | 补齐根依赖 `node-llama-cpp@3.18.1` 的 pnpm lockfile  | `pnpm install --frozen-lockfile` 不再因 importer 不一致失败   |
-| `TEST-20260828-004` | 更新配置、Provider、Heartbeat 和正式发布文档         | 人和 OpenClaw 都能识别 `.7` 的行为、配置与验收范围            |
+| 任务                | 修复                                                          | 预期结果                                                      |
+| ------------------- | ------------------------------------------------------------- | ------------------------------------------------------------- |
+| `TEST-20260828-001` | 自托管首事件分类与流中空闲分类共用同一 locality 事实          | vLLM、SGLang、LM Studio 等使用 FQDN 时仍采用 300 秒首事件保护 |
+| `TEST-20260828-002` | Heartbeat 原样继承全局 `timeoutSeconds: 0`                    | 不再被错误转换为 1 秒                                         |
+| `TEST-20260828-003` | 移除误放在根包的 `node-llama-cpp@3.18.1` 并对齐 pnpm lockfile | 根包不再携带未使用依赖，frozen-lockfile 安装通过              |
+| `TEST-20260828-004` | 更新配置、Provider、Heartbeat 和正式发布文档                  | 人和 OpenClaw 都能识别 `.7` 的行为、配置与验收范围            |
 
 本版本还包含归档中已审计的 Gate 1 和 Gate 2A 基础修复：
 
@@ -122,6 +122,16 @@ pnpm install --lockfile-only --offline --frozen-lockfile
 - `qwen3.8-max` 配置的 256K 上下文与 Provider 实际 prompt ceiling 仍存在偏差。
 - successor trajectory 的 `compactionCount` 记录存在展示层瑕疵，不影响压缩执行和恢复。
 - `/stop` 文本快捷命令 routing 可在后续版本独立优化。
+
+`BASELINE_WAIVER:` 本次发布仅豁免以下 `.6` 已存在债务，不表示问题已解决：
+
+| 豁免项                                          | 状态                                                                                          | 后续要求                                                          |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `security-fast`: 15 项 High/Critical advisories | `PRESENT_IN_6=YES`<br>`INTRODUCED_BY_7=NO`<br>`NOT_FIXED_IN_7=YES`<br>`FOLLOWUP_REQUIRED=YES` | 单独的安全维护版本；不在 `.7` 中批量升级依赖                      |
+| baseline lint: 7 issues                         | `PRESENT_IN_6=YES`<br>`INTRODUCED_BY_7=NO`<br>`NOT_FIXED_IN_7=YES`<br>`FOLLOWUP_REQUIRED=YES` | 独立 lint 债务清理                                                |
+| existing OpenAI Responses test type errors      | `PRESENT_IN_6=YES`<br>`INTRODUCED_BY_7=NO`<br>`NOT_FIXED_IN_7=YES`<br>`FOLLOWUP_REQUIRED=YES` | 独立修复 OpenAI Responses 测试类型；不修改 `.7` production source |
+
+`.7` 新增的 `llm-idle-timeout.test.ts` 类型错误已作 test-only 修正，不属于上述基线豁免。
 
 ## 发布检查
 

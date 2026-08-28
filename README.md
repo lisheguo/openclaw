@@ -16,7 +16,7 @@
 - vLLM、SGLang、LM Studio 等自托管 Provider 即使使用 FQDN，也会在首事件和流中空闲两条路径得到一致的 300 秒分类。
 - 未单独设置 Heartbeat 超时时，会正确继承全局 `0`；不会再把长任务 Heartbeat 变成 1 秒超时。
 - 终态 ReplyOperation 增加 60 秒有界收尾保护，避免所有者未完成清理时永久占用会话 lane。
-- 补齐根依赖 `node-llama-cpp@3.18.1` 的 pnpm lockfile 记录，恢复 frozen-lockfile 安装一致性。
+- 移除误放在根包的 `node-llama-cpp@3.18.1`；Llama.cpp 功能继续由独立插件管理依赖，并恢复 frozen-lockfile 安装一致性。
 
 完整行为、配置、测试和发布检查见 [.7 升级与验收说明](docs/providers/long-running-lifecycle-v2026.7.1-2-responses-cache.7.md)。
 
@@ -160,8 +160,7 @@ ARK 1000 项输入保护是独立 capability，只配置在确实存在 hard lim
 corepack enable
 corepack prepare pnpm@11.2.2 --activate
 
-# 当前基线锁文件与 package.json 存在已知不同步，仅在临时测试环境使用
-pnpm install --no-frozen-lockfile
+pnpm install --frozen-lockfile
 
 pnpm build
 pnpm ui:build
@@ -178,7 +177,10 @@ Node.js 要求：22.22.3+、24.15+ 或 25.9+，推荐 Node.js 24。
 
 ## 已知基线问题
 
-基线的 `package.json` 已包含 `node-llama-cpp@3.18.1`，但 `pnpm-lock.yaml` 尚未同步，因此冻结锁文件安装会在编译和测试开始前失败。生产依赖审计也包含既有告警。这些问题不是 Responses Session Cache 修改引入，本次定制没有修改相关依赖或锁文件。
+`.7` 已移除误放在根包的 `node-llama-cpp@3.18.1`，并重新对齐 `pnpm-lock.yaml`。此变更不移除
+`extensions/llama-cpp` 独立声明的可选依赖，不改变生产 lifecycle 逻辑。安全审计、lint 和
+OpenAI Responses 测试类型仍有 `.6` 已存在的基线债务；它们未在 `.7` 中修复，需要后续独立维护。
+完整豁免记录见 [.7 升级与验收说明](docs/providers/long-running-lifecycle-v2026.7.1-2-responses-cache.7.md)。
 
 ## 与官方项目的关系
 

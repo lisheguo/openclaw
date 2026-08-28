@@ -924,7 +924,7 @@ describe("streamWithIdleTimeout", () => {
 
   it("creation-only: rejects when stream creation never resolves", async () => {
     vi.useFakeTimers();
-    const baseFn = vi.fn(() => new Promise<AssistantMessageEventStream>(() => {}));
+    const baseFn: StreamFn = vi.fn(() => new Promise<AssistantMessageEventStream>(() => {}));
     const onIdleTimeout = vi.fn();
     const wrapped = streamWithIdleTimeout(baseFn, 50, onIdleTimeout, "creation-only");
 
