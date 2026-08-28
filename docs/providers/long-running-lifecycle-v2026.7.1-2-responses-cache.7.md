@@ -130,6 +130,7 @@ pnpm install --lockfile-only --offline --frozen-lockfile
 | `security-fast`: 15 项 High/Critical advisories | `PRESENT_IN_6=YES`<br>`INTRODUCED_BY_7=NO`<br>`NOT_FIXED_IN_7=YES`<br>`FOLLOWUP_REQUIRED=YES` | 单独的安全维护版本；不在 `.7` 中批量升级依赖                      |
 | baseline lint: 7 issues                         | `PRESENT_IN_6=YES`<br>`INTRODUCED_BY_7=NO`<br>`NOT_FIXED_IN_7=YES`<br>`FOLLOWUP_REQUIRED=YES` | 独立 lint 债务清理                                                |
 | existing OpenAI Responses test type errors      | `PRESENT_IN_6=YES`<br>`INTRODUCED_BY_7=NO`<br>`NOT_FIXED_IN_7=YES`<br>`FOLLOWUP_REQUIRED=YES` | 独立修复 OpenAI Responses 测试类型；不修改 `.7` production source |
+| Plugin SDK surface-budget tests: 2 issues       | `PRESENT_IN_6=YES`<br>`INTRODUCED_BY_7=NO`<br>`NOT_FIXED_IN_7=YES`<br>`FOLLOWUP_REQUIRED=YES` | 独立对齐公开导出数量基线；不在 `.7` 中扩大修改                    |
 
 `.7` 新增的 `llm-idle-timeout.test.ts` 类型错误已作 test-only 修正，不属于上述基线豁免。
 

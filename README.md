@@ -179,7 +179,8 @@ Node.js 要求：22.22.3+、24.15+ 或 25.9+，推荐 Node.js 24。
 
 `.7` 已移除误放在根包的 `node-llama-cpp@3.18.1`，并重新对齐 `pnpm-lock.yaml`。此变更不移除
 `extensions/llama-cpp` 独立声明的可选依赖，不改变生产 lifecycle 逻辑。安全审计、lint 和
-OpenAI Responses 测试类型仍有 `.6` 已存在的基线债务；它们未在 `.7` 中修复，需要后续独立维护。
+OpenAI Responses 测试类型及 Plugin SDK surface-budget 测试仍有 `.6` 已存在的基线债务；它们未在
+`.7` 中修复，需要后续独立维护。
 完整豁免记录见 [.7 升级与验收说明](docs/providers/long-running-lifecycle-v2026.7.1-2-responses-cache.7.md)。
 
 ## 与官方项目的关系
