@@ -4,6 +4,22 @@
     "target": "OpenClaw"
   },
   {
+    "source": "Agent loop timeouts",
+    "target": "Agent 循环超时"
+  },
+  {
+    "source": "Responses item-aware compaction .6 upgrade and acceptance",
+    "target": "Responses item-aware compaction .6 升级与验收"
+  },
+  {
+    "source": "responses-cache.7 长任务生命周期升级与验收",
+    "target": "responses-cache.7 长任务生命周期升级与验收"
+  },
+  {
+    "source": "vLLM",
+    "target": "vLLM"
+  },
+  {
     "source": "Ark Kimi native Responses tool call IDs",
     "target": "Ark Kimi 原生 Responses 工具调用 ID"
   },
