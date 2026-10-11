@@ -1,0 +1,114 @@
+{
+  "TASK_ID": "CHG-GLPI-REPLAY-RETENTION-002",
+  "BASE_COMMIT": "a5ced4800591f96563b891dceae205954dae1221",
+  "NEW_COMMIT": "Resolve the containing commit; final exact SHA is published in PR #3 and the delivery response.",
+  "OPENCLAW_VERSION": "2026.9.9",
+  "OPENCLAW_COMMIT": "bcfc88812a35243893585dbeca87ca41b48272ca",
+  "METRICS_PATCH": "PASS_OFFLINE",
+  "RETENTION_SEMANTICS_CHANGED": "NO",
+  "HOST_DEDUPE_REUSE_FEASIBLE": "UNKNOWN",
+  "TRUSTED_MESSAGE_AGE_FENCE": "NOT_PROVEN",
+  "OPTIONS": {
+    "A": "Only delays exhaustion; no capacity increase in this patch.",
+    "B": "Requires trusted creation-age boundary and an approved finite business window; not proven.",
+    "C": "Official async and deprecated sync storage exist; safe integration/atomicity not proven."
+  },
+  "PREFERRED_NEXT_STAGE": "Measure sanitized volume and prove timestamp/host persistence contracts before a separately approved retention change.",
+  "CAPACITY_WARN_THRESHOLDS": [
+    70,
+    85,
+    95,
+    100
+  ],
+  "CAPACITY_WARN_USED": [
+    2868,
+    3482,
+    3892,
+    4096
+  ],
+  "DEFAULT_CAPACITY": 4096,
+  "CAPACITY_EXHAUSTION_POLICY": "FAIL_CLOSED",
+  "ACCEPT_11": "PASS_OFFLINE",
+  "ACCEPT_01": "FAIL_UNRESOLVED",
+  "ACCEPT_05": "FAIL_UNRESOLVED",
+  "CI": "Verify exact published SHA after push; offline logs do not establish CI status.",
+  "FULL_RUNNER": "NOT_EXECUTED",
+  "ACTUAL_CHANNEL_VOLUME": "UNKNOWN",
+  "PRODUCTION_CHANGED": "NO",
+  "CORE_CHANGED": "NO",
+  "SHADOW_MODE": "ACTIVE",
+  "ENFORCE_READY": "NO",
+  "ENFORCE_ACTIVATED": "NO",
+  "RISK_AND_ROLLBACK": "4096 exhaustion remains; reviewed code revert removes metrics but cannot restore lost in-memory receipts. No deployment performed or restart authorized.",
+  "PR_URL": "https://github.com/lisheguo/glpi-ticket-gate/pull/3",
+  "suites": {
+    "baseline-accept11": {
+      "tests": 1,
+      "pass": 1,
+      "fail": 0,
+      "skipped": 0,
+      "exit_code": 0
+    },
+    "baseline-acceptance": {
+      "tests": 3,
+      "pass": 1,
+      "fail": 2,
+      "skipped": 0,
+      "exit_code": 1
+    },
+    "baseline-component": {
+      "tests": 44,
+      "pass": 44,
+      "fail": 0,
+      "skipped": 0,
+      "exit_code": 0
+    },
+    "baseline-unit": {
+      "tests": 515,
+      "pass": 515,
+      "fail": 0,
+      "skipped": 0,
+      "exit_code": 0
+    },
+    "final-accept11": {
+      "tests": 1,
+      "pass": 1,
+      "fail": 0,
+      "skipped": 0,
+      "exit_code": 0
+    },
+    "final-acceptance": {
+      "tests": 3,
+      "pass": 1,
+      "fail": 2,
+      "skipped": 0,
+      "exit_code": 1
+    },
+    "final-component": {
+      "tests": 45,
+      "pass": 45,
+      "fail": 0,
+      "skipped": 0,
+      "exit_code": 0
+    },
+    "final-source": {
+      "tests": 4,
+      "pass": 4,
+      "fail": 0,
+      "skipped": 0,
+      "exit_code": 0
+    },
+    "final-unit": {
+      "tests": 523,
+      "pass": 523,
+      "fail": 0,
+      "skipped": 0,
+      "exit_code": 0
+    }
+  },
+  "unit_coverage": {
+    "lines_percent": 95.28,
+    "branches_percent": 90.04,
+    "functions_percent": 98.76
+  }
+}

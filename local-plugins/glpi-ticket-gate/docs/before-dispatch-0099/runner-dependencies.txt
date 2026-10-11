@@ -1,0 +1,7 @@
+READ_ONLY_PACKAGE_RESOLUTION; no install or upstream node_modules change
+provider-id.ts SHA256=12fc8a816ebb1a91685a26042b0161f278de0f019dd8a59f62a5deed6dfcd53d
+@openclaw/model-catalog-core/provider-id MODULE_NOT_FOUND
+@mariozechner/pi-ai MODULE_NOT_FOUND
+@mariozechner/pi-agent-core MODULE_NOT_FOUND
+zod MODULE_NOT_FOUND
+jiti MODULE_NOT_FOUND

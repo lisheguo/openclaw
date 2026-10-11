@@ -1,0 +1,10 @@
+FULL_RUNNER=NOT_EXECUTED
+Error: Disallowed native dependency: node:fs from src/agents/system-prompt-params.ts
+    at moduleFor (file:///workspace/glpi-ticket-gate/test/integration/upstream-loader.js:65:15)
+    at file:///workspace/glpi-ticket-gate/test/integration/upstream-loader.js:119:63
+    at [kLink] (node:internal/vm/module:345:28)
+    at node:internal/vm/module:361:32
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+(node:12026) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:12026) ExperimentalWarning: VM Modules is an experimental feature and might change at any time

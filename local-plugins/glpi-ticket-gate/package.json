@@ -1,0 +1,11 @@
+{
+  "name": "glpi-ticket-gate",
+  "version": "0.1.0",
+  "type": "module",
+  "peerDependencies": {
+    "openclaw": ">=2026.9.7"
+  },
+  "openclaw": {
+    "extensions": ["./index.ts"]
+  }
+}

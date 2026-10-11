@@ -1,0 +1,5 @@
+FULL_RUNNER=NOT_EXECUTED
+LOAD_BLOCKER=Unresolved external dependency: @openclaw/model-catalog-core/provider-id from src/plugins/plugin-metadata-snapshot.ts
+(node:8819) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:8819) ExperimentalWarning: VM Modules is an experimental feature and might change at any time

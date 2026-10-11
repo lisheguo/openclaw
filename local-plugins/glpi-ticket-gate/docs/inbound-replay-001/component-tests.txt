@@ -1,0 +1,86 @@
+(node:15258) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:15258) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+✔ DISPATCH-01 official registrar accepts before_dispatch without conversation access; decline continues (46.670101ms)
+✔ DISPATCH-02 actual claiming runner/choose-route await a barrier before final admission (3.565679ms)
+✔ DISPATCH-03 real Feishu body + inbound builder/finalizer + mapper + dispatch: normal group (1.314342ms)
+✔ DISPATCH-03 real Feishu body + inbound builder/finalizer + mapper + dispatch: quote only (1.445939ms)
+✔ DISPATCH-03 real Feishu body + inbound builder/finalizer + mapper + dispatch: display name only (0.709785ms)
+✔ DISPATCH-03 real Feishu body + inbound builder/finalizer + mapper + dispatch: mention rendering (0.504647ms)
+✔ DISPATCH-03 real Feishu body + inbound builder/finalizer + mapper + dispatch: audio transcript projection (ASR excluded) (0.555063ms)
+✔ DISPATCH-03 real Feishu body + inbound builder/finalizer + mapper + dispatch: direct chat (1.015573ms)
+✔ DISPATCH-03 real Feishu body + inbound builder/finalizer + mapper + dispatch: thread route (0.594612ms)
+✔ DISPATCH-04 ordinary chat: no Flow, first tool or Skill (2.182604ms)
+✔ DISPATCH-04b blank command/raw falls back to rendered history: content provenance remains unproved (0.908112ms)
+✔ DISPATCH-05 official fire-and-forget observation early/late remains read-only in candidate (4.693401ms)
+✔ DISPATCH-06 repeated ID is inert, distinct ID prepares separately, conflicting copies fail closed (3.637547ms)
+✔ DISPATCH-07 two users, accounts and threaded sessions have separate preparation scopes (3.829535ms)
+✔ DISPATCH-08 missing host sender/message never borrows a preparation (1.581412ms)
+✔ DISPATCH-09 real dispatch owner: prepared message can subsequently be busy (0.781091ms)
+✔ DISPATCH-09 real dispatch owner: prepared message can subsequently be aborted (0.789014ms)
+✔ DISPATCH-10 later claiming handler or substituted takeover can prevent model admission (1.241202ms)
+✔ DISPATCH-11 native abort wrapper fences an already aborted dispatch (1.341583ms)
+✔ DISPATCH-11b abort during a later handler leaves only unadmitted preparation (2.331318ms)
+✔ DISPATCH-12 real eligibility excludes heartbeat-style state and restricted admitted settings (0.819179ms)
+✔ DISPATCH-13 exception and timeout fail open; candidate never authorizes the prepared message (46.873736ms)
+✔ DISPATCH-14 replay/fallback-shaped duplicate and closed generation do not authorize; actual reload excluded (1.50643ms)
+✔ DISPATCH-15 240 mixed asynchronous component schedules keep preparation isolated; readiness is not passed (163.618923ms)
+ℹ PREPARATION_SAFETY_PASS=true; FIRST_TURN_READINESS_PASS=false; these are constructed schedules, not production rates
+(node:15262) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:15262) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+✔ CASE-01: real early hook declines; first-turn Flow/Factory/Skill readiness remains BLOCKED (9.613872ms)
+✔ CASE-02: ordinary chat has no Flow, tool or Skill (3.236074ms)
+✔ CASE-03: real hooks/factories/prompt contributions isolate two technicians (6.553881ms)
+✔ CASE-04: early observation creates once; declined prototype leaves evidence intact (1.719249ms)
+✔ CASE-05: late observation cannot repair an already assembled first tool surface (30.410259ms)
+✔ CASE-06: missing host identity never borrows the only active Flow (1.322384ms)
+✔ CASE-07: official Feishu rendering proves quoted content and name contaminate cleanedBody (0.901513ms)
+✔ CASE-08: official run-once cache shares concurrent/fallback calls only within an admission scope (1.268062ms)
+✔ CASE-09: real claiming hook awaits a release barrier; errors/timeout fail open without Flow mutation (13.831989ms)
+✔ CASE-10: new registration has empty process-local state; real plugin reload is NOT_EXECUTED (1.318097ms)
+✔ CASE-11: new-ID edits revoke confirmation; original-message replay preserves it (4.712239ms)
+✔ CASE-12: a completed Flow can restart (store contract); first-turn admission is still unavailable (3.488383ms)
+✔ registration policy and trigger eligibility are enforced by official registrars/runner (0.854982ms)
+✔ 240 additional upstream component schedules retain the blocked acceptance result (291.464783ms)
+ℹ SAFETY_PASS=true for attribution; READINESS_PASS=false; 160/240 constructed initial factory misses, not a production rate
+✔ pinned source callsites establish order, missing fields and unchanged audited bytes (1.092258ms)
+✔ write component source inventory when requested (0.09998ms)
+(node:15273) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:15273) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+✔ REPLAY-C01 official registration/mapper/emitter preserves initial and confirmation replays (48.186656ms)
+✔ REPLAY-C02 official path rejects same-ID text/reply conflict; true new ID revokes confirmation (11.136727ms)
+✔ REPLAY-C03 missing/conflicting official identity never changes accepted evidence (8.107792ms)
+✔ REPLAY-C04 real host scope projection separates routed owners and rejects a colliding Flow scope (21.003058ms)
+ℹ tests 44
+ℹ suites 0
+ℹ pass 44
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1424.461607
+ℹ start of coverage report
+ℹ ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ℹ file               | line % | branch % | funcs % | uncovered lines
+ℹ ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ℹ lib                |        |          |         |
+ℹ  config.js         | 100.00 |    12.50 |   50.00 |
+ℹ  contract.js       |  41.28 |    77.78 |   33.33 | 17-19 29-43 45-48 50-58 62 73-82 84-88 92-102 104-109
+ℹ  detect.js         |  88.19 |    52.78 |   83.33 | 98-104 120-127
+ℹ  draft.js          | 100.00 |    90.91 |  100.00 |
+ℹ  gate.js           |  25.31 |    14.29 |    9.09 | 10-11 21-22 26-31 36-42 44-57 60 62-73 77 79-86 90-101 118-127 129-137 155-173 175-267 269-278 287-332 336-337 343-362 376-399
+ℹ  handlers.js       |  59.82 |    50.77 |   75.00 | 48-52 64-65 70-71 100-101 112-113 123-127 162-163 186-236 241-284 290-294 297-301 310-313 325-326
+ℹ  inbound-replay.js | 100.00 |    81.25 |   86.67 |
+ℹ  log.js            |  84.00 |    60.00 |   83.33 | 14-15 17-18
+ℹ  preflight.js      |  92.86 |    28.13 |   80.00 | 38 54 79-80 91-92 122-124
+ℹ  register.js       |  70.42 |    65.38 |   63.64 | 33-36 53-54 71-73 87-88 106-107 115-124 133-143 164-166 177-189 196-208
+ℹ  skill.js          |  88.89 |    75.00 |  100.00 | 15-16
+ℹ  state.js          |  96.24 |    69.70 |  100.00 | 52-53 106-108
+ℹ  tool.js           |  92.15 |    47.83 |  100.00 | 19-29 124-125 140-141
+ℹ  workflow.js       |  34.69 |    24.00 |   38.46 | 13-16 26-35 41-67 83-94 105-147
+ℹ ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ℹ all files          |  64.29 |    52.59 |   68.50 |
+ℹ ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ℹ end of coverage report

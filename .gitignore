@@ -1,0 +1,5 @@
+# 白名单式 .gitignore：工作区默认全部忽略，仅纳管 local-plugins 插件代码与本文件
+# 防止凭据(.env/密钥)、记忆、日志等敏感内容误入公开仓库
+/*
+!/.gitignore
+!/local-plugins/

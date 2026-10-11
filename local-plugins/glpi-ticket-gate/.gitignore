@@ -1,0 +1,4 @@
+dist/
+.DS_Storepackage-lock.json
+*.log
+node_modules/

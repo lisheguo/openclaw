@@ -1,0 +1,28 @@
+(node:10522) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:10522) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+✔ CASE-01: real early hook declines; first-turn Flow/Factory/Skill readiness remains BLOCKED (29.853011ms)
+✔ CASE-02: ordinary chat has no Flow, tool or Skill (4.075182ms)
+✔ CASE-03: real hooks/factories/prompt contributions isolate two technicians (8.251525ms)
+✔ CASE-04: early observation creates once; declined prototype leaves evidence intact (1.743445ms)
+✔ CASE-05: late observation cannot repair an already assembled first tool surface (9.294439ms)
+✔ CASE-06: missing host identity never borrows the only active Flow (1.116845ms)
+✔ CASE-07: official Feishu rendering proves quoted content and name contaminate cleanedBody (1.12026ms)
+✔ CASE-08: official run-once cache shares concurrent/fallback calls only within an admission scope (1.441793ms)
+✔ CASE-09: real claiming hook awaits a release barrier; errors/timeout fail open without Flow mutation (4.307ms)
+✔ CASE-10: new registration has empty process-local state; real plugin reload is NOT_EXECUTED (1.157606ms)
+✔ CASE-11: edits revoke confirmation; same-message duplicate also revokes it (unfixed regression) (4.089594ms)
+✔ CASE-12: a completed Flow can restart (store contract); first-turn admission is still unavailable (1.329875ms)
+✔ registration policy and trigger eligibility are enforced by official registrars/runner (0.519379ms)
+✔ 240 additional upstream component schedules retain the blocked acceptance result (144.008625ms)
+ℹ SAFETY_PASS=true for attribution; READINESS_PASS=false; 160/240 constructed initial factory misses, not a production rate
+✔ pinned source callsites establish order, missing fields and unchanged audited bytes (1.402143ms)
+✔ write component source inventory when requested (0.161732ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 673.446018
