@@ -1,0 +1,50 @@
+(node:12695) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:12695) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+✔ CASE-01: real early hook declines; first-turn Flow/Factory/Skill readiness remains BLOCKED (6.554091ms)
+✔ CASE-02: ordinary chat has no Flow, tool or Skill (2.60965ms)
+✔ CASE-03: real hooks/factories/prompt contributions isolate two technicians (17.904353ms)
+✔ CASE-04: early observation creates once; declined prototype leaves evidence intact (1.856394ms)
+✔ CASE-05: late observation cannot repair an already assembled first tool surface (7.431928ms)
+✔ CASE-06: missing host identity never borrows the only active Flow (1.079158ms)
+✔ CASE-07: official Feishu rendering proves quoted content and name contaminate cleanedBody (1.00022ms)
+✔ CASE-08: official run-once cache shares concurrent/fallback calls only within an admission scope (1.036404ms)
+✔ CASE-09: real claiming hook awaits a release barrier; errors/timeout fail open without Flow mutation (4.723926ms)
+✔ CASE-10: new registration has empty process-local state; real plugin reload is NOT_EXECUTED (0.996244ms)
+✔ CASE-11: edits revoke confirmation; same-message duplicate also revokes it (unfixed regression) (3.785268ms)
+✔ CASE-12: a completed Flow can restart (store contract); first-turn admission is still unavailable (0.549214ms)
+✔ registration policy and trigger eligibility are enforced by official registrars/runner (0.410706ms)
+✔ 240 additional upstream component schedules retain the blocked acceptance result (105.066076ms)
+ℹ SAFETY_PASS=true for attribution; READINESS_PASS=false; 160/240 constructed initial factory misses, not a production rate
+✔ pinned source callsites establish order, missing fields and unchanged audited bytes (0.776565ms)
+✔ write component source inventory when requested (0.097897ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 589.489126
+ℹ start of coverage report
+ℹ -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ℹ file          | line % | branch % | funcs % | uncovered lines
+ℹ -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ℹ lib           |        |          |         |
+ℹ  config.js    | 100.00 |    12.50 |   50.00 |
+ℹ  contract.js  |  41.28 |    77.78 |   33.33 | 17-19 29-43 45-48 50-58 62 73-82 84-88 92-102 104-109
+ℹ  detect.js    |  88.19 |    47.06 |   83.33 | 98-104 120-127
+ℹ  draft.js     | 100.00 |    80.00 |  100.00 |
+ℹ  gate.js      |  23.81 |     7.69 |    9.09 | 10-11 17-19 21-31 36-42 44-57 60 62-73 77 79-86 90-101 118-127 129-137 155-173 175-267 269-278 287-332 336-337 343-362 376-399
+ℹ  handlers.js  |  58.41 |    46.67 |   70.00 | 37-41 53-54 59-60 89-90 101-102 112-116 151-152 175-225 230-273 279-283 286-290 299-302 314-315
+ℹ  log.js       |  84.00 |    55.56 |   66.67 | 14-15 17-18
+ℹ  preflight.js |  92.86 |    28.13 |   80.00 | 38 54 79-80 91-92 122-124
+ℹ  register.js  |  70.42 |    66.67 |   63.64 | 32-35 53-54 71-73 87-88 106-107 115-124 133-143 164-166 177-189 196-208
+ℹ  skill.js     |  88.89 |    75.00 |  100.00 | 15-16
+ℹ  state.js     |  96.09 |    69.70 |  100.00 | 47-48 101-103
+ℹ  tool.js      |  92.15 |    36.59 |  100.00 | 19-29 124-125 140-141
+ℹ  workflow.js  |  34.69 |    24.00 |   38.46 | 13-16 26-35 41-67 83-94 105-147
+ℹ -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ℹ all files     |  62.30 |    43.56 |   64.55 |
+ℹ -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ℹ end of coverage report

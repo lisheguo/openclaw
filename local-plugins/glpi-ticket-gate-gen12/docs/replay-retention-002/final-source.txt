@@ -1,0 +1,15 @@
+(node:17839) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:17839) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+✔ RETENTION-S01 official memory cache loses protection at size or 24h TTL (not durable business dedup) (3.160756ms)
+✔ RETENTION-S02 fixed Feishu producer explicitly falls back to local time; numeric parser is not provenance (0.72605ms)
+✔ RETENTION-S03 official builder/finalizer/mapper expose timestamp value without its creation/fallback provenance (2.820485ms)
+✔ RETENTION-S04 fixed SDK bounded retention, async dedupe and deprecated sync storage contracts (0.71283ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 195.248989

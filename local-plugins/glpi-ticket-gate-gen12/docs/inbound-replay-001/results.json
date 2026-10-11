@@ -1,0 +1,93 @@
+{
+  "TASK_ID": "CHG-GLPI-PHASE2-INBOUND-REPLAY-001",
+  "BASE_COMMIT": "bb087241a11fcc56dc684b2b5343a117887a2265",
+  "NEW_COMMIT": "published PR head / final delivery",
+  "PR_URL": "https://github.com/lisheguo/glpi-ticket-gate/pull/3",
+  "OPENCLAW_COMMIT": "bcfc88812a35243893585dbeca87ca41b48272ca",
+  "ACCEPT_11": "PASS",
+  "ACCEPT_01": "FAIL_EXPECTED_UNRESOLVED",
+  "ACCEPT_05": "FAIL_EXPECTED_UNRESOLVED",
+  "REPLAY_KEY_SCOPE": [
+    "channelId",
+    "accountId|null",
+    "conversationId|null",
+    "sessionKey",
+    "senderId",
+    "nativeMessageId"
+  ],
+  "REPLAY_TOMBSTONE_POLICY": {
+    "capacity": 4096,
+    "lifetime": "FlowStore instance",
+    "ttl_eviction": false,
+    "capacity_policy": "CAPACITY_BLOCKED",
+    "scope_collision_policy": "FLOW_SCOPE_CONFLICT"
+  },
+  "MISSING_MESSAGE_ID_POLICY": "FAIL_CLOSED_NO_FLOW_READ_OR_MUTATION",
+  "BASELINE_UNIT": {
+    "pass": 472,
+    "fail": 0,
+    "total": 472,
+    "exit_code": 0
+  },
+  "BASELINE_COMPONENT": {
+    "pass": 40,
+    "fail": 0,
+    "total": 40,
+    "exit_code": 0
+  },
+  "UNIT": {
+    "pass": 515,
+    "fail": 0,
+    "total": 515,
+    "exit_code": 0
+  },
+  "COMPONENT": {
+    "pass": 44,
+    "fail": 0,
+    "total": 44,
+    "exit_code": 0
+  },
+  "ACCEPT_11_ONLY": {
+    "pass": 1,
+    "fail": 0,
+    "total": 1,
+    "exit_code": 0
+  },
+  "POSITIVE_ACCEPTANCE": {
+    "pass": 1,
+    "fail": 2,
+    "total": 3,
+    "exit_code": 1
+  },
+  "UNIT_LIB_COVERAGE_PERCENT": {
+    "line": 95.12,
+    "branch": 90.01,
+    "function": 98.57
+  },
+  "REPLAY_MODULE_UNIT_COVERAGE_PERCENT": {
+    "line": 100,
+    "branch": 94.59,
+    "function": 100
+  },
+  "CONSTRUCTED_SCHEDULES_RETAINED": 720,
+  "FIRST_TURN_STATUS": "BLOCKED",
+  "FULL_RUNNER_STATUS": "NOT_EXECUTED",
+  "PRODUCTION_CHANGED": "NO",
+  "CORE_CHANGED": "NO",
+  "ENFORCE_READY": "NO",
+  "SHADOW_MODE": "ACTIVE_IN_REPOSITORY",
+  "CI_STATUS": "CHECK_PUBLISHED_HEAD; OFFLINE_TESTS_ARE_NOT_CI",
+  "LIMITATIONS": [
+    "instance-local receipts only",
+    "no cross-restart/multi-Gateway deduplication",
+    "no ordering guarantee for different IDs",
+    "capacity exhaustion denies mutation",
+    "same session/sender across scope changes denied",
+    "partial handler effect not rolled back on exception",
+    "actual host reload revocation unknown",
+    "same-ID platform edits rejected"
+  ],
+  "DIFF": "bb087241a11fcc56dc684b2b5343a117887a2265..published_HEAD",
+  "ROLLBACK": "reviewed revert; would reintroduce ACCEPT-11 defect",
+  "NEXT_STEP": "review replay fix; retain first-turn blockers; no deployment"
+}

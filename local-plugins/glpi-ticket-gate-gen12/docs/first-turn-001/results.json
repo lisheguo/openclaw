@@ -1,0 +1,51 @@
+{
+  "task_id": "CHG-GLPI-PHASE2-FIRST-TURN-001",
+  "base_commit": "afacf7a54490e11c9dfc770292d58166fb16da73",
+  "openclaw_commit": "bcfc88812a35243893585dbeca87ca41b48272ca",
+  "dev_04_status": "BLOCKED",
+  "prototype_enabled": false,
+  "plugin_runtime_files_changed": false,
+  "unit": {
+    "baseline": 438,
+    "total": 448,
+    "passed": 448,
+    "failed": 0,
+    "line_coverage": 95.15,
+    "branch_coverage": 89.61
+  },
+  "official_component_integration": {
+    "total": 16,
+    "passed": 16,
+    "failed_assertions": 0,
+    "additional_schedules": 240,
+    "constructed_first_factory_misses": 160,
+    "readiness_pass": false,
+    "line_coverage_plugin_only": 62.3,
+    "branch_coverage_plugin_only": 43.56,
+    "full_runner": false
+  },
+  "full_runner": {
+    "status": "NOT_EXECUTED",
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "load_blocker": "Unresolved external dependency: @openclaw/model-catalog-core/provider-id from src/plugins/plugin-metadata-snapshot.ts"
+  },
+  "acceptance": {
+    "current_message_boundary": "BLOCKED",
+    "first_turn_flow": "BLOCKED",
+    "first_turn_tool": "FAIL",
+    "first_turn_skill": "BLOCKED",
+    "duplicate_observation_safe": "FAIL",
+    "multi_user_isolation": "PASS_COMPONENT",
+    "retry_fallback": "PARTIAL_SAME_ADMISSION_SCOPE",
+    "plugin_reload": "NOT_EXECUTED",
+    "plugin_only_solution": "NOT_PROVEN",
+    "core_patch_required": "NOT_DETERMINED"
+  },
+  "core_changed": false,
+  "production_changed": false,
+  "mode": "SHADOW_ONLY",
+  "enforce_activated": false,
+  "test_commit": "7a6a2ce405279c5478aaf32590326a2373dcddd7"
+}

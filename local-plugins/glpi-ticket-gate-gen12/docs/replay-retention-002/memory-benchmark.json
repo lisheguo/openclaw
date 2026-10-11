@@ -1,0 +1,402 @@
+{
+  "baseline_commit": "a5ced4800591f96563b891dceae205954dae1221",
+  "node": "v24.19.0",
+  "platform": "linux",
+  "arch": "x64",
+  "default_capacity": 4096,
+  "trials_per_condition": 3,
+  "full_runner_executed": false,
+  "methodology": "Fresh child per sample; 512 warmup reservations; triple forced GC; retained heap delta after filling minus empty guard; sequential trials. Synthetic in-process measurements, not production sizing or a strict memory bound.",
+  "results": [
+    {
+      "variant": "baseline",
+      "count": 1024,
+      "scopes": 1,
+      "body_bytes": 128,
+      "samples": [
+        {
+          "empty_guard_heap_bytes": -1016,
+          "retained_delta_bytes": 242552,
+          "retained_bytes_per_receipt": 236.8671875,
+          "fill_ms": 12.763524000000004,
+          "duplicate_2000_ms": 23.811874000000003,
+          "metrics_10000_reads_ms": null,
+          "used": 1024
+        },
+        {
+          "empty_guard_heap_bytes": -6704,
+          "retained_delta_bytes": 251064,
+          "retained_bytes_per_receipt": 245.1796875,
+          "fill_ms": 12.950635000000005,
+          "duplicate_2000_ms": 14.600180000000009,
+          "metrics_10000_reads_ms": null,
+          "used": 1024
+        },
+        {
+          "empty_guard_heap_bytes": -1016,
+          "retained_delta_bytes": 243144,
+          "retained_bytes_per_receipt": 237.4453125,
+          "fill_ms": 11.509312000000008,
+          "duplicate_2000_ms": 13.739667999999995,
+          "metrics_10000_reads_ms": null,
+          "used": 1024
+        }
+      ],
+      "median_bytes_per_receipt": 237.4453125,
+      "median_fill_ms": 12.763524000000004,
+      "median_duplicate_2000_ms": 14.600180000000009,
+      "median_metrics_10000_reads_ms": null
+    },
+    {
+      "variant": "metrics",
+      "count": 1024,
+      "scopes": 1,
+      "body_bytes": 128,
+      "samples": [
+        {
+          "empty_guard_heap_bytes": 1808,
+          "retained_delta_bytes": 274280,
+          "retained_bytes_per_receipt": 267.8515625,
+          "fill_ms": 12.609943999999999,
+          "duplicate_2000_ms": 15.695985000000007,
+          "metrics_10000_reads_ms": 4.787115,
+          "used": 1024
+        },
+        {
+          "empty_guard_heap_bytes": 1808,
+          "retained_delta_bytes": 273688,
+          "retained_bytes_per_receipt": 267.2734375,
+          "fill_ms": 12.57715499999999,
+          "duplicate_2000_ms": 15.836185,
+          "metrics_10000_reads_ms": 3.9704689999999943,
+          "used": 1024
+        },
+        {
+          "empty_guard_heap_bytes": 1808,
+          "retained_delta_bytes": 273688,
+          "retained_bytes_per_receipt": 267.2734375,
+          "fill_ms": 21.297145999999998,
+          "duplicate_2000_ms": 19.371399999999994,
+          "metrics_10000_reads_ms": 4.7951559999999915,
+          "used": 1024
+        }
+      ],
+      "median_bytes_per_receipt": 267.2734375,
+      "median_fill_ms": 12.609943999999999,
+      "median_duplicate_2000_ms": 15.836185,
+      "median_metrics_10000_reads_ms": 4.787115
+    },
+    {
+      "variant": "baseline",
+      "count": 1024,
+      "scopes": 1024,
+      "body_bytes": 128,
+      "samples": [
+        {
+          "empty_guard_heap_bytes": -1016,
+          "retained_delta_bytes": 435392,
+          "retained_bytes_per_receipt": 425.1875,
+          "fill_ms": 13.875597999999997,
+          "duplicate_2000_ms": 16.04936500000001,
+          "metrics_10000_reads_ms": null,
+          "used": 1024
+        },
+        {
+          "empty_guard_heap_bytes": -1016,
+          "retained_delta_bytes": 435392,
+          "retained_bytes_per_receipt": 425.1875,
+          "fill_ms": 11.511184,
+          "duplicate_2000_ms": 14.002283000000006,
+          "metrics_10000_reads_ms": null,
+          "used": 1024
+        },
+        {
+          "empty_guard_heap_bytes": -1016,
+          "retained_delta_bytes": 434800,
+          "retained_bytes_per_receipt": 424.609375,
+          "fill_ms": 11.392887000000002,
+          "duplicate_2000_ms": 14.160791000000003,
+          "metrics_10000_reads_ms": null,
+          "used": 1024
+        }
+      ],
+      "median_bytes_per_receipt": 425.1875,
+      "median_fill_ms": 11.511184,
+      "median_duplicate_2000_ms": 14.160791000000003,
+      "median_metrics_10000_reads_ms": null
+    },
+    {
+      "variant": "metrics",
+      "count": 1024,
+      "scopes": 1024,
+      "body_bytes": 128,
+      "samples": [
+        {
+          "empty_guard_heap_bytes": 1808,
+          "retained_delta_bytes": 710632,
+          "retained_bytes_per_receipt": 693.9765625,
+          "fill_ms": 14.46651,
+          "duplicate_2000_ms": 16.155823999999996,
+          "metrics_10000_reads_ms": 4.072210999999996,
+          "used": 1024
+        },
+        {
+          "empty_guard_heap_bytes": 1808,
+          "retained_delta_bytes": 710040,
+          "retained_bytes_per_receipt": 693.3984375,
+          "fill_ms": 13.648281999999995,
+          "duplicate_2000_ms": 14.496705000000006,
+          "metrics_10000_reads_ms": 3.7767079999999993,
+          "used": 1024
+        },
+        {
+          "empty_guard_heap_bytes": 1808,
+          "retained_delta_bytes": 708632,
+          "retained_bytes_per_receipt": 692.0234375,
+          "fill_ms": 13.725977999999998,
+          "duplicate_2000_ms": 14.759979999999999,
+          "metrics_10000_reads_ms": 4.111679999999993,
+          "used": 1024
+        }
+      ],
+      "median_bytes_per_receipt": 693.3984375,
+      "median_fill_ms": 13.725977999999998,
+      "median_duplicate_2000_ms": 14.759979999999999,
+      "median_metrics_10000_reads_ms": 4.072210999999996
+    },
+    {
+      "variant": "baseline",
+      "count": 4096,
+      "scopes": 1,
+      "body_bytes": 128,
+      "samples": [
+        {
+          "empty_guard_heap_bytes": -1016,
+          "retained_delta_bytes": 921704,
+          "retained_bytes_per_receipt": 225.025390625,
+          "fill_ms": 43.97932899999999,
+          "duplicate_2000_ms": 13.461041000000009,
+          "metrics_10000_reads_ms": null,
+          "used": 4096
+        },
+        {
+          "empty_guard_heap_bytes": -1016,
+          "retained_delta_bytes": 921704,
+          "retained_bytes_per_receipt": 225.025390625,
+          "fill_ms": 62.722511999999995,
+          "duplicate_2000_ms": 15.951306999999986,
+          "metrics_10000_reads_ms": null,
+          "used": 4096
+        },
+        {
+          "empty_guard_heap_bytes": -1016,
+          "retained_delta_bytes": 921704,
+          "retained_bytes_per_receipt": 225.025390625,
+          "fill_ms": 44.408693,
+          "duplicate_2000_ms": 14.082704000000007,
+          "metrics_10000_reads_ms": null,
+          "used": 4096
+        }
+      ],
+      "median_bytes_per_receipt": 225.025390625,
+      "median_fill_ms": 44.408693,
+      "median_duplicate_2000_ms": 14.082704000000007,
+      "median_metrics_10000_reads_ms": null
+    },
+    {
+      "variant": "metrics",
+      "count": 4096,
+      "scopes": 1,
+      "body_bytes": 128,
+      "samples": [
+        {
+          "empty_guard_heap_bytes": 1808,
+          "retained_delta_bytes": 1038328,
+          "retained_bytes_per_receipt": 253.498046875,
+          "fill_ms": 46.59588599999999,
+          "duplicate_2000_ms": 14.692569000000006,
+          "metrics_10000_reads_ms": 4.353482999999983,
+          "used": 4096
+        },
+        {
+          "empty_guard_heap_bytes": 1808,
+          "retained_delta_bytes": 1038328,
+          "retained_bytes_per_receipt": 253.498046875,
+          "fill_ms": 45.95882999999999,
+          "duplicate_2000_ms": 15.426640000000006,
+          "metrics_10000_reads_ms": 3.8984509999999943,
+          "used": 4096
+        },
+        {
+          "empty_guard_heap_bytes": 1808,
+          "retained_delta_bytes": 1038328,
+          "retained_bytes_per_receipt": 253.498046875,
+          "fill_ms": 46.122855,
+          "duplicate_2000_ms": 14.618607999999995,
+          "metrics_10000_reads_ms": 4.462857000000014,
+          "used": 4096
+        }
+      ],
+      "median_bytes_per_receipt": 253.498046875,
+      "median_fill_ms": 46.122855,
+      "median_duplicate_2000_ms": 14.692569000000006,
+      "median_metrics_10000_reads_ms": 4.353482999999983
+    },
+    {
+      "variant": "baseline",
+      "count": 4096,
+      "scopes": 4096,
+      "body_bytes": 128,
+      "samples": [
+        {
+          "empty_guard_heap_bytes": -1016,
+          "retained_delta_bytes": 1690672,
+          "retained_bytes_per_receipt": 412.76171875,
+          "fill_ms": 55.98825000000001,
+          "duplicate_2000_ms": 15.718489000000005,
+          "metrics_10000_reads_ms": null,
+          "used": 4096
+        },
+        {
+          "empty_guard_heap_bytes": 3432,
+          "retained_delta_bytes": 1680480,
+          "retained_bytes_per_receipt": 410.2734375,
+          "fill_ms": 58.39383600000001,
+          "duplicate_2000_ms": 15.754211999999995,
+          "metrics_10000_reads_ms": null,
+          "used": 4096
+        },
+        {
+          "empty_guard_heap_bytes": -1016,
+          "retained_delta_bytes": 1691488,
+          "retained_bytes_per_receipt": 412.9609375,
+          "fill_ms": 48.70653299999999,
+          "duplicate_2000_ms": 16.627241999999995,
+          "metrics_10000_reads_ms": null,
+          "used": 4096
+        }
+      ],
+      "median_bytes_per_receipt": 412.76171875,
+      "median_fill_ms": 55.98825000000001,
+      "median_duplicate_2000_ms": 15.754211999999995,
+      "median_metrics_10000_reads_ms": null
+    },
+    {
+      "variant": "metrics",
+      "count": 4096,
+      "scopes": 4096,
+      "body_bytes": 128,
+      "samples": [
+        {
+          "empty_guard_heap_bytes": 1808,
+          "retained_delta_bytes": 2777848,
+          "retained_bytes_per_receipt": 678.185546875,
+          "fill_ms": 53.40409199999999,
+          "duplicate_2000_ms": 16.35355100000001,
+          "metrics_10000_reads_ms": 3.814965000000001,
+          "used": 4096
+        },
+        {
+          "empty_guard_heap_bytes": 1808,
+          "retained_delta_bytes": 2775912,
+          "retained_bytes_per_receipt": 677.712890625,
+          "fill_ms": 55.84501599999999,
+          "duplicate_2000_ms": 25.480361999999985,
+          "metrics_10000_reads_ms": 4.474784999999997,
+          "used": 4096
+        },
+        {
+          "empty_guard_heap_bytes": 1808,
+          "retained_delta_bytes": 2777256,
+          "retained_bytes_per_receipt": 678.041015625,
+          "fill_ms": 67.33216900000001,
+          "duplicate_2000_ms": 18.663347999999985,
+          "metrics_10000_reads_ms": 4.095486000000022,
+          "used": 4096
+        }
+      ],
+      "median_bytes_per_receipt": 678.041015625,
+      "median_fill_ms": 55.84501599999999,
+      "median_duplicate_2000_ms": 18.663347999999985,
+      "median_metrics_10000_reads_ms": 4.095486000000022
+    },
+    {
+      "variant": "baseline",
+      "count": 4096,
+      "scopes": 1,
+      "body_bytes": 16384,
+      "samples": [
+        {
+          "empty_guard_heap_bytes": -1016,
+          "retained_delta_bytes": 921704,
+          "retained_bytes_per_receipt": 225.025390625,
+          "fill_ms": 169.90763800000002,
+          "duplicate_2000_ms": 93.56073000000004,
+          "metrics_10000_reads_ms": null,
+          "used": 4096
+        },
+        {
+          "empty_guard_heap_bytes": -1016,
+          "retained_delta_bytes": 921480,
+          "retained_bytes_per_receipt": 224.970703125,
+          "fill_ms": 184.874648,
+          "duplicate_2000_ms": 72.13473200000004,
+          "metrics_10000_reads_ms": null,
+          "used": 4096
+        },
+        {
+          "empty_guard_heap_bytes": -1016,
+          "retained_delta_bytes": 921480,
+          "retained_bytes_per_receipt": 224.970703125,
+          "fill_ms": 176.78285599999998,
+          "duplicate_2000_ms": 74.06606,
+          "metrics_10000_reads_ms": null,
+          "used": 4096
+        }
+      ],
+      "median_bytes_per_receipt": 224.970703125,
+      "median_fill_ms": 176.78285599999998,
+      "median_duplicate_2000_ms": 74.06606,
+      "median_metrics_10000_reads_ms": null
+    },
+    {
+      "variant": "metrics",
+      "count": 4096,
+      "scopes": 1,
+      "body_bytes": 16384,
+      "samples": [
+        {
+          "empty_guard_heap_bytes": -6336,
+          "retained_delta_bytes": 1062744,
+          "retained_bytes_per_receipt": 259.458984375,
+          "fill_ms": 163.898012,
+          "duplicate_2000_ms": 75.27279600000003,
+          "metrics_10000_reads_ms": 3.829537000000016,
+          "used": 4096
+        },
+        {
+          "empty_guard_heap_bytes": -6336,
+          "retained_delta_bytes": 1062744,
+          "retained_bytes_per_receipt": 259.458984375,
+          "fill_ms": 162.90887500000002,
+          "duplicate_2000_ms": 70.94108600000001,
+          "metrics_10000_reads_ms": 4.368204999999989,
+          "used": 4096
+        },
+        {
+          "empty_guard_heap_bytes": -6336,
+          "retained_delta_bytes": 1062744,
+          "retained_bytes_per_receipt": 259.458984375,
+          "fill_ms": 160.303066,
+          "duplicate_2000_ms": 71.974977,
+          "metrics_10000_reads_ms": 4.591060000000027,
+          "used": 4096
+        }
+      ],
+      "median_bytes_per_receipt": 259.458984375,
+      "median_fill_ms": 162.90887500000002,
+      "median_duplicate_2000_ms": 71.974977,
+      "median_metrics_10000_reads_ms": 4.368204999999989
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+(node:16283) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:16283) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+✖ ACCEPT-01 first command must have first Flow + Factory + Skill ready (19.997254ms)
+✖ ACCEPT-05 late observation must not be needed to repair first Factory/Skill (27.720198ms)
+✔ ACCEPT-11 current runtime handler must preserve confirmation on replay of initial host message ID (6.704416ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 1
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1219.795883
+
+✖ failing tests:
+
+test at test/integration/dispatch-readiness.acceptance.js:13:1
+✖ ACCEPT-01 first command must have first Flow + Factory + Skill ready (19.997254ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    {
+  +   flow: false,
+  +   skill: false,
+  +   tool: false
+  -   flow: true,
+  -   skill: true,
+  -   tool: true
+    }
+
+      at TestContext.<anonymous> (file:///workspace/glpi-ticket-gate/test/integration/dispatch-readiness.acceptance.js:15:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { flow: false, tool: false, skill: false },
+    expected: { flow: true, tool: true, skill: true },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at test/integration/dispatch-readiness.acceptance.js:18:1
+✖ ACCEPT-05 late observation must not be needed to repair first Factory/Skill (27.720198ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    {
+  +   flow: false,
+  +   skill: false,
+  +   tool: false
+  -   flow: true,
+  -   skill: true,
+  -   tool: true
+    }
+
+      at TestContext.<anonymous> (file:///workspace/glpi-ticket-gate/test/integration/dispatch-readiness.acceptance.js:21:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { flow: false, tool: false, skill: false },
+    expected: { flow: true, tool: true, skill: true },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

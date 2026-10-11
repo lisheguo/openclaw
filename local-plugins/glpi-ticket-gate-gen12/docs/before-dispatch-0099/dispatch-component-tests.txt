@@ -1,0 +1,55 @@
+(node:13667) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:13667) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+✔ DISPATCH-01 official registrar accepts before_dispatch without conversation access; decline continues (35.043164ms)
+✔ DISPATCH-02 actual claiming runner/choose-route await a barrier before final admission (7.947863ms)
+✔ DISPATCH-03 real Feishu body + inbound builder/finalizer + mapper + dispatch: normal group (2.791822ms)
+✔ DISPATCH-03 real Feishu body + inbound builder/finalizer + mapper + dispatch: quote only (1.063807ms)
+✔ DISPATCH-03 real Feishu body + inbound builder/finalizer + mapper + dispatch: display name only (0.941884ms)
+✔ DISPATCH-03 real Feishu body + inbound builder/finalizer + mapper + dispatch: mention rendering (0.344437ms)
+✔ DISPATCH-03 real Feishu body + inbound builder/finalizer + mapper + dispatch: audio transcript projection (ASR excluded) (0.600321ms)
+✔ DISPATCH-03 real Feishu body + inbound builder/finalizer + mapper + dispatch: direct chat (0.919481ms)
+✔ DISPATCH-03 real Feishu body + inbound builder/finalizer + mapper + dispatch: thread route (0.83928ms)
+✔ DISPATCH-04 ordinary chat: no Flow, first tool or Skill (0.730768ms)
+✔ DISPATCH-04b blank command/raw falls back to rendered history: content provenance remains unproved (0.66632ms)
+✔ DISPATCH-05 official fire-and-forget observation early/late remains read-only in candidate (3.762078ms)
+✔ DISPATCH-06 repeated ID is inert, distinct ID prepares separately, conflicting copies fail closed (2.389578ms)
+✔ DISPATCH-07 two users, accounts and threaded sessions have separate preparation scopes (2.023999ms)
+✔ DISPATCH-08 missing host sender/message never borrows a preparation (2.335767ms)
+✔ DISPATCH-09 real dispatch owner: prepared message can subsequently be busy (0.584247ms)
+✔ DISPATCH-09 real dispatch owner: prepared message can subsequently be aborted (4.174578ms)
+✔ DISPATCH-10 later claiming handler or substituted takeover can prevent model admission (1.193802ms)
+✔ DISPATCH-11 native abort wrapper fences an already aborted dispatch (2.233793ms)
+✔ DISPATCH-11b abort during a later handler leaves only unadmitted preparation (2.837209ms)
+✔ DISPATCH-12 real eligibility excludes heartbeat-style state and restricted admitted settings (0.690837ms)
+✔ DISPATCH-13 exception and timeout fail open; candidate never authorizes the prepared message (25.037631ms)
+✔ DISPATCH-14 replay/fallback-shaped duplicate and closed generation do not authorize; actual reload excluded (1.621615ms)
+✔ DISPATCH-15 240 mixed asynchronous component schedules keep preparation isolated; readiness is not passed (171.301443ms)
+ℹ PREPARATION_SAFETY_PASS=true; FIRST_TURN_READINESS_PASS=false; these are constructed schedules, not production rates
+ℹ tests 24
+ℹ suites 0
+ℹ pass 24
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 767.77385
+ℹ start of coverage report
+ℹ ----------------------------------------------------------------------------------------------------------------------------------
+ℹ file          | line % | branch % | funcs % | uncovered lines
+ℹ ----------------------------------------------------------------------------------------------------------------------------------
+ℹ lib           |        |          |         |
+ℹ  contract.js  |  28.44 |   100.00 |    0.00 | 17-19 22-23 25-26 29-43 45-48 50-58 60-64 66-71 73-82 84-88 92-102 104-109
+ℹ  detect.js    |  78.74 |    50.00 |   63.64 | 77-83 98-104 108-112 120-127
+ℹ  draft.js     |  23.68 |   100.00 |    0.00 | 7-8 10-13 15-29 31-38
+ℹ  gate.js      |  18.05 |   100.00 |    0.00 | 9-102 118-127 129-137 155-173 175-267 269-278 287-332 336-337 343-362 376-399
+ℹ  handlers.js  |  20.32 |    55.56 |   10.00 | 27-31 35-95 101-102 110-140 145-159 165-171 175-225 230-273 277-307 311-312 314-315
+ℹ  log.js       |  20.00 |   100.00 |    0.00 | 4-6 9-25
+ℹ  preflight.js |  26.98 |   100.00 |    0.00 | 25-31 33-43 51-110 113-126
+ℹ  state.js     |  39.06 |    71.43 |   33.33 | 40-94 97-106 109-116 119-121 124-125
+ℹ  tool.js      |  24.61 |    77.78 |   50.00 | 18-59 67-164 186-189
+ℹ  workflow.js  |  13.61 |   100.00 |    0.00 | 13-16 20-39 41-67 70-102 105-147
+ℹ ----------------------------------------------------------------------------------------------------------------------------------
+ℹ all files     |  26.92 |    62.30 |   17.50 |
+ℹ ----------------------------------------------------------------------------------------------------------------------------------
+ℹ end of coverage report
